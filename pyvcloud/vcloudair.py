@@ -749,6 +749,100 @@ class VCA(object):
                 return vapp
 
 
+    def _create_composeVAppParams(self, name, vm_specs, power, vm_cpus=None, vm_memory=None):
+        composeParams = vcloudType.ComposeVAppParamsType()
+        composeParams.set_name(name)
+        composeParams.set_deploy(deploy)
+        composeParams.set_powerOn(power)
+        composeParams.set_AllEULAsAccepted("true")
+
+        for vm_spec in vm_specs:
+            catalog_name = vm_spec['catalog_name']
+            template_name = vm_spec['template_name']
+
+            catalogs = filter(lambda link: catalog_name == link.get_name() and link.get_type() == "application/vnd.vmware.vcloud.catalog+xml",
+                                     self.vcloud_session.organization.get_Link())
+            if len(catalogs) == 1:
+                self.response = Http.get(catalogs[0].get_href(), headers=self.vcloud_session.get_vcloud_headers(), verify=self.verify, logger=self.logger)
+                if self.response.status_code == requests.codes.ok:
+                    catalog = catalogType.parseString(self.response.content, True)
+                    catalog_items = filter(lambda catalogItemRef: catalogItemRef.get_name() == template_name, catalog.get_CatalogItems().get_CatalogItem())
+                    if len(catalog_items) == 1:
+                        self.response = Http.get(catalog_items[0].get_href(), headers=self.vcloud_session.get_vcloud_headers(), verify=self.verify, logger=self.logger)
+                        # use ElementTree instead because none of the types inside resources (not even catalogItemType) is able to parse the response correctly
+                        catalogItem = ET.fromstring(self.response.content)
+                        entity = [child for child in catalogItem if child.get("type") == "application/vnd.vmware.vcloud.vAppTemplate+xml"][0]
+                        vm_href = None
+                        if vm_name:
+                            self.response = Http.get(entity.get('href'), headers=self.vcloud_session.get_vcloud_headers(), verify=self.verify, logger=self.logger)
+                            if self.response.status_code == requests.codes.ok:
+                                vAppTemplate = ET.fromstring(self.response.content)
+                                for vm in vAppTemplate.iter('{http://www.vmware.com/vcloud/v1.5}Vm'):
+                                    vm_href = vm.get('href')
+
+            vm_cpus = None
+            vm_memory = None
+
+            if 'name' in vm_spec:
+                vm_name = vm_spec['name']
+            else:
+                vm_name = vm_spec['template_name']
+            if 'cpus' in vm_spec:
+                vm_cpus = vm_spec['cpus']
+            if 'memory' in vm_spec:
+                vm_memory = vm_spec['memory']
+
+            params = vcloudType.SourcedCompositionItemParamType()
+            if ((self.version == "1.0") or (self.version == "1.5")
+                    or (self.version == "5.1") or (self.version == "5.5")):
+                message = 'Customization during instantiation is not ' +\
+                          'supported in this version, use vapp methods ' +\
+                          'to change vm name, cpu or memory'
+                Log.error(self.logger, message)
+                raise Exception(message)
+
+            params.set_Source(vcloudType.ReferenceType(href=vm_href))
+
+            if vm_name:
+               gen_params = vcloudType.VmGeneralParamsType()
+               gen_params.set_Name(vm_name)
+               params.set_VmGeneralParams(gen_params)
+
+            if vm_cpus or vm_memory:
+                inst_param = vcloudType.InstantiationParamsType()
+                hardware = vcloudType.VirtualHardwareSection_Type(id=None)
+                hardware.original_tagname_ = "VirtualHardwareSection"
+                hardware.set_Info(vAppType.cimString(valueOf_="Virtual hardware requirements"))
+                if vm_cpus:
+                    cpudata = vAppType.RASD_Type()
+                    cpudata.original_tagname_ = "ovf:Item"
+                    cpudata.set_required(None)
+                    cpudata.set_AllocationUnits(vAppType.cimString(valueOf_="hertz * 10^6"))
+                    cpudata.set_Description(vAppType.cimString(valueOf_="Number of Virtual CPUs"))
+                    cpudata.set_ElementName(vAppType.cimString(valueOf_="{0} virtual CPU(s)".format(vm_cpus)))
+                    cpudata.set_InstanceID(vAppType.cimInt(valueOf_=1))
+                    cpudata.set_ResourceType(3)
+                    cpudata.set_VirtualQuantity(vAppType.cimInt(valueOf_=vm_cpus))
+                    hardware.add_Item(cpudata)
+                if vm_memory:
+                    memorydata = vAppType.RASD_Type()
+                    memorydata.original_tagname_ = "ovf:Item"
+                    memorydata.set_required(None)
+                    memorydata.set_AllocationUnits(vAppType.cimString(valueOf_="byte * 2^20"))
+                    memorydata.set_Description(vAppType.cimString(valueOf_="Memory Size"))
+                    memorydata.set_ElementName(vAppType.cimString(valueOf_="{0} MB of memory".format(vm_memory)))
+                    memorydata.set_InstanceID(vAppType.cimInt(valueOf_=2))
+                    memorydata.set_ResourceType(4)
+                    memorydata.set_VirtualQuantity(vAppType.cimInt(valueOf_=vm_memory))
+                    hardware.add_Item(memorydata)
+
+                inst_param.add_Section(hardware)
+                params.set_InstantiationParams(inst_param)
+
+            composeParams.add_SourcedItem(params)
+
+        return composeParams
+
     def _create_instantiateVAppTemplateParams(self, name, template_href,
                                               vm_name, vm_href, deploy,
                                               power, vm_cpus=None,
@@ -863,6 +957,58 @@ class VCA(object):
             return (True, task)
         else:
             return (False, self.response.content)
+
+    def compose_vapp(self, vdc_name, vapp_name, network_name=None, network_mode='bridged',
+            vm_specs=None, deploy='false', poweron='false'):
+        """
+        Compose a new vApp in a virtual data center.
+
+        A vApp is an application package containing 1 or more virtual machines and their required operating system.
+
+
+        :param vdc_name: (str): The virtual data center name.
+        :param vapp_name: (str): The name of the new vapp.
+        :param network_name: (str): The name of the network contained within the vApp.
+        :param network_mode: (str): The mode for the network contained within the vApp.
+        :param vm_specs: (list): A list of dicts with keys 'catalog_name', 'template_name', 'name*', 'cpus*', 'memory*'. *Optional.
+        :param deploy: (bool): True to deploy the vApp immediately after creation, False otherwise.
+        :param poweron: (bool): True to poweron the vApp immediately after deployment, False otherwise.
+        :return: (task): a :class:`pyvcloud.schema.vcd.v1_5.schemas.admin.vCloudEntities.TaskType`, a handle to the asynchronous process executing the request.
+
+        **service type:**. ondemand, subscription, vcd
+
+        """
+        self.vdc = self.get_vdc(vdc_name)
+        if not self.vcloud_session or not self.vcloud_session.organization or not self.vdc:
+            #"Select an organization and datacenter first"
+            return False
+
+        compose_params = self._create_composeVAppParams(vapp_name, vm_specs,
+                deploy=deploy, power=poweron)
+
+        if network_name:
+            pass
+
+        output = StringIO()
+        compose_params.export(output,
+            0,
+            name_ = 'ComponseVAppParams',
+            namespacedef_ = '''xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1"
+                               xmlns:rasd="http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData"''',
+                               pretty_print = False)
+        body = '<?xml version="1.0" encoding="UTF-8"?>' + \
+                output.getvalue().replace('class:', 'rasd:')\
+                                 .replace(' xmlns:vmw="http://www.vmware.com/vcloud/v1.5"', '')\
+                                 .replace('vmw:', 'rasd:')\
+                                 .replace('Info>', "ovf:Info>")
+        content_type = "application/vnd.vmware.vcloud.composeVAppParams+xml"
+        link = filter(lambda link: link.get_type() == content_type, self.vdc.get_Link())
+        self.response = Http.post(link[0].get_href(), headers=self.vcloud_session.get_vcloud_headers(), verify=self.verify, data=body, logger=self.logger)
+        if self.response.status_code == requests.codes.created:
+            vApp = vAppType.parseString(self.response.content, True)
+            task = vApp.get_Tasks().get_Task()[0]
+            return task
+        return False
 
     def create_vapp(self, vdc_name, vapp_name, template_name, catalog_name,
                     network_name=None, network_mode='bridged', vm_name=None,
