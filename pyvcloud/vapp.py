@@ -843,6 +843,43 @@ class VAPP(object):
         raise Exception('can\'t find vm')
 
 
+    def recompose(self, add_vm_specs=None, del_vm_specs=None):
+        """
+        Add or remove virtual machines from a vApp.
+
+        :param add_vm_specs: (list): A list of dicts with keys 'vm_href', 'name*', 'cpus*', 'memory*'. *Optional. These vm's will be added to the vApp.
+        :param del_vm_specs: (list): A list of strings, identifying the names of vm's to be removed from the vApp.
+        :return: (task): a :class:`pyvcloud.schema.vcd.v1_5.schemas.admin.vCloudEntities.TaskType`, a handle to the asynchronous process executing the request.
+
+        **service type:**. ondemand, subscription, vcd
+
+        """
+
+        if not add_vm_specs and not del_vm_specs:
+            return False
+
+        recompose_params = self._create_recomposeVAppParams(add_vm_specs, del_vm_specs)
+
+        output = StringIO()
+        recompose_params.export(output,
+            0,
+            name_ = 'RecomposeVAppParams',
+            namespacedef_ = '''xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1"
+                               xmlns:rasd="http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData"''',
+                               pretty_print = False)
+        body = '<?xml version="1.0" encoding="UTF-8"?>' + \
+                output.getvalue().replace('class:', 'rasd:')\
+                                 .replace(' xmlns:vmw="http://www.vmware.com/vcloud/v1.5"', '')\
+                                 .replace('vmw:', 'rasd:')\
+                                 .replace('Info>', "ovf:Info>")
+        link = filter(lambda link: link.get_rel() == 'recompose', self.me.get_Link())
+        self.response = Http.post(link[0].get_href(), headers=self.headers, verify=self.verify, data=body, logger=self.logger)
+        if self.response.status_code == requests.codes.accepted:
+            return taskType.parseString(self.response.content, True)
+        else:
+            raise Exception(self.response.status_code)
+
+
     def _get_vms(self):
         children = self.me.get_Children()
         if children:
@@ -884,3 +921,76 @@ class VAPP(object):
         if mac_address:
             networkConnection.set_MACAddress(mac_address)
         return networkConnection
+
+    def _create_recomposeVAppParams(self, add_vm_specs, del_vm_specs):
+
+        recomposeParams = vcloudType.RecomposeVAppParamsType()
+
+        recomposeParams.set_name(self.name)
+        recomposeParams.set_AllEULAsAccepted("true")
+
+        for vm_spec in add_vm_specs:
+            vm_href = vm_spec['vm_href']
+
+            vm_name = None
+            vm_cpus = None
+            vm_memory = None
+
+            if 'name' in vm_spec:
+                vm_name = vm_spec['name']
+            if 'cpus' in vm_spec:
+                vm_cpus = vm_spec['cpus']
+            if 'memory' in vm_spec:
+                vm_memory = vm_spec['memory']
+
+            params = vcloudType.SourcedCompositionItemParamType()
+            params.set_Source(vcloudType.ReferenceType(href=vm_href))
+
+            if not vm_name:
+                vm_name = self.name + 'vm1'
+
+            gen_params = vcloudType.VmGeneralParamsType()
+            gen_params.set_Name(vm_name)
+            params.set_VmGeneralParams(gen_params)
+
+            if vm_cpus or vm_memory:
+                inst_param = vcloudType.InstantiationParamsType()
+                hardware = vcloudType.VirtualHardwareSection_Type(id=None)
+                hardware.original_tagname_ = "VirtualHardwareSection"
+                hardware.set_Info(vAppType.cimString(valueOf_="Virtual hardware requirements"))
+                if vm_cpus:
+                    cpudata = vAppType.RASD_Type()
+                    cpudata.original_tagname_ = "ovf:Item"
+                    cpudata.set_required(None)
+                    cpudata.set_AllocationUnits(vAppType.cimString(valueOf_="hertz * 10^6"))
+                    cpudata.set_Description(vAppType.cimString(valueOf_="Number of Virtual CPUs"))
+                    cpudata.set_ElementName(vAppType.cimString(valueOf_="{0} virtual CPU(s)".format(vm_cpus)))
+                    cpudata.set_InstanceID(vAppType.cimInt(valueOf_=1))
+                    cpudata.set_ResourceType(3)
+                    cpudata.set_VirtualQuantity(vAppType.cimInt(valueOf_=vm_cpus))
+                    hardware.add_Item(cpudata)
+                if vm_memory:
+                    memorydata = vAppType.RASD_Type()
+                    memorydata.original_tagname_ = "ovf:Item"
+                    memorydata.set_required(None)
+                    memorydata.set_AllocationUnits(vAppType.cimString(valueOf_="byte * 2^20"))
+                    memorydata.set_Description(vAppType.cimString(valueOf_="Memory Size"))
+                    memorydata.set_ElementName(vAppType.cimString(valueOf_="{0} MB of memory".format(vm_memory)))
+                    memorydata.set_InstanceID(vAppType.cimInt(valueOf_=2))
+                    memorydata.set_ResourceType(4)
+                    memorydata.set_VirtualQuantity(vAppType.cimInt(valueOf_=vm_memory))
+                    hardware.add_Item(memorydata)
+
+                inst_param.add_Section(hardware)
+                params.set_InstantiationParams(inst_param)
+
+            recomposeParams.add_SourcedItem(params)
+
+        children = self.me.get_Children()
+        if children:
+            for vm_name in del_vm_specs:
+                vms = [vm for vm in children.get_Vm() if vm.name == vm_name]
+                if len(vms) == 1:
+                    recomposeParams.add_DeleteItem(vcloudType.ReferenceType(href=vms[0].get_href()))
+
+        return recomposeParams

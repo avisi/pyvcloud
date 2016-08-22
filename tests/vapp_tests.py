@@ -74,10 +74,12 @@ class TestVApp:
         vm_name = config['vcloud']['vm']
         catalog = config['vcloud']['catalog']
         template = config['vcloud']['template']
+        network = config['vcloud']['network']
         the_vdc = self.vca.get_vdc(vdc_name)
         assert the_vdc
         assert the_vdc.get_name() == vdc_name
-        task = self.vca.create_vapp(vdc_name, vapp_name, template, catalog, vm_name=vm_name)
+        task = self.vca.create_vapp(vdc_name, vapp_name, template, catalog, network_name=network, 
+                                    vm_name=vm_name)
         assert task
         result = self.vca.block_until_completed(task)
         assert result
@@ -88,6 +90,30 @@ class TestVApp:
 
 
     def test_0004(self):
+        """Recompose vApp"""
+        vdc_name = config['vcloud']['vdc']
+        vapp_name = config['vcloud']['vapp']
+        vm_name = config['vcloud']['vm']
+        catalog = config['vcloud']['catalog']
+        template = config['vcloud']['template']
+        network = config['vcloud']['network']
+        the_vdc = self.vca.get_vdc(vdc_name)
+
+        vm_href = self.vca.get_template_href_from_catalog(catalog, template)
+
+        add_vm_specs = [{'name': vm_name + '_recompose', 'vm_href': vm_href}]
+
+        assert the_vdc
+        assert the_vdc.get_name() == vdc_name
+        the_vapp = self.vca.get_vapp(the_vdc, vapp_name)
+        assert the_vapp
+        task = the_vapp.recompose(add_vm_specs=add_vm_specs, del_vm_specs=[vm_name])
+        assert task
+        result = self.vca.block_until_completed(task)
+        assert result
+
+
+    def test_0005(self):
         """Validate vApp State is powered off (8)"""
         vdc_name = config['vcloud']['vdc']
         vapp_name = config['vcloud']['vapp']
