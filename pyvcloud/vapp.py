@@ -1085,14 +1085,15 @@ class VAPP(object):
                     output,
                     0,
                     name_='Item',
-                    namespacedef_='xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1" xmlns:rasd="http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData"',
+                    namespacedef_='xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1" xmlns:rasd="http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"',
                     pretty_print=True)
                 body = output.getvalue(). replace(
                     'Info msgid=""', "ovf:Info").replace(
                     "/Info", "/ovf:Info"). replace(
                     "vmw:", "").replace(
                     "class:", "rasd:").replace(
-                    "ResourceType", "rasd:ResourceType")
+                    "<ResourceType", "<rasd:ResourceType").replace(
+                    "/ResourceType>", "/rasd:ResourceType>")
                 headers = self.headers
                 headers[
                     'Content-type'] = 'application/vnd.vmware.vcloud.rasdItem+xml'
@@ -1105,7 +1106,7 @@ class VAPP(object):
                 if self.response.status_code == requests.codes.accepted:
                     return taskType.parseString(self.response.content, True)
                 else:
-                    raise Exception(self.response.status_code)
+                    raise Exception(self.response.status_code, body, self.response.content)
         raise Exception('can\'t find vm')
 
     def modify_vm_cpu(self, vm_name, cpus):
@@ -1145,14 +1146,15 @@ class VAPP(object):
                     output,
                     0,
                     name_='Item',
-                    namespacedef_='xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1" xmlns:rasd="http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData"',
+                    namespacedef_='xmlns="http://www.vmware.com/vcloud/v1.5" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1" xmlns:rasd="http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"',
                     pretty_print=True)
                 body = output.getvalue(). replace(
                     'Info msgid=""', "ovf:Info").replace(
                     "/Info", "/ovf:Info"). replace(
                     "vmw:", "").replace(
                     "class:", "rasd:").replace(
-                    "ResourceType", "rasd:ResourceType")
+                    "<ResourceType", "<rasd:ResourceType").replace(
+                    "/ResourceType>", "/rasd:ResourceType>")
                 headers = self.headers
                 headers[
                     'Content-type'] = 'application/vnd.vmware.vcloud.rasdItem+xml'
@@ -1165,7 +1167,7 @@ class VAPP(object):
                 if self.response.status_code == requests.codes.accepted:
                     return taskType.parseString(self.response.content, True)
                 else:
-                    raise Exception(self.response.status_code)
+                    raise Exception(self.response.status_code, body, self.response.content)
         raise Exception('can\'t find vm')
 
     def add_disk_to_vm(self, vm_name, disk_size, storage_profile_href=None):
@@ -1189,10 +1191,15 @@ class VAPP(object):
                 self.response = Http.get(href, headers=headers, verify=self.verify, logger=self.logger)
                 diskItemsList = None
                 if self.response.status_code == requests.codes.ok:
-                    diskItemsList = vcloudType.parseString(self.response.content, True)
+                    body = self.response.content
+                    for tag in ['ConsumerVisibility', 'MappingBehavior']:
+                        body = body.replace(
+                        '<rasd:%s xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:nil="true"/>' % tag,
+                        '<rasd:%s xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">0</rasd:%s>' % (tag, tag))
+                    diskItemsList = vcloudType.parseString(body, True)
                 else:
                     error = errorType.parseString(self.response.content, True)
-                    raise Exception(error.message)
+                    raise Exception(error.message, self.response.content)
 
                 disks = filter(lambda x: x.get_Description().get_valueOf_() == 'Hard disk',
                                diskItemsList.get_Item())
@@ -1236,7 +1243,10 @@ class VAPP(object):
                     "/Info", "/ovf:Info"). replace(
                     "vmw:", "").replace(
                     "class:", "rasd:").replace(
-                    "ResourceType", "rasd:ResourceType")
+                    "<ResourceType", "<rasd:ResourceType").replace(
+                    "/ResourceType>", "/rasd:ResourceType>").replace(
+                    "ConsumerVisibility", "rasd:ConsumerVisibility").replace(
+                    "MappingBehavior", "rasd:MappingBehavior")
                 headers = self.headers
                 headers['Content-type'] = 'application/vnd.vmware.vcloud.rasditemslist+xml'
 
