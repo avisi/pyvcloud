@@ -857,6 +857,7 @@ class VDC(object):
 
     def create_natrouted_vdc_network(self,
                                     network_name,
+                                    gateway_name,
                                     gateway_ip,
                                     netmask,
                                     description=None,
@@ -874,6 +875,7 @@ class VDC(object):
         """Create a new natRouted OrgVdc network in this vdc.
 
         :param network_name: (str): Name of the new network.
+        :param gateway_name: (str): The name of an existing edge Gateway appliance that will manage the virtual network.
         :param gateway_ip: (str): IP address of the gateway of the new network.
         :param netmask: (str): Network mask.
         :param description: (str): Description of the new network.
@@ -942,6 +944,9 @@ class VDC(object):
 
         if is_shared is not None:
             request_payload.append(E.IsShared(is_shared))
+
+        # list_edge_gateways
+        request_payload.append(E.EdgeGateway(name=gateway_name))
 
         return self.client.post_linked_resource(
             self.resource, RelationType.ADD, EntityType.ORG_VDC_NETWORK.value,
