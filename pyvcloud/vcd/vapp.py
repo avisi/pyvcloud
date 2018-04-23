@@ -317,6 +317,7 @@ class VApp(object):
         """
         if self.resource is None:
             self.resource = self.client.get_resource(self.href)
+
         if hasattr(self.resource, 'Children') and \
            hasattr(self.resource.Children, 'Vm') and \
            len(self.resource.Children.Vm) > 0:
@@ -498,6 +499,7 @@ class VApp(object):
             specification.
         """
         source_vapp = VApp(self.client, resource=spec['vapp'])
+        print(source_vapp)
         source_vm_resource = source_vapp.get_vm(spec['source_vm_name'])
 
         sourced_item = E.SourcedItem(
