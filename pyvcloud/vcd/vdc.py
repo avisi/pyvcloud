@@ -928,6 +928,14 @@ class VDC(object):
         vdc_network_configuration.append(E.FenceMode(FenceMode.NAT_ROUTED.value))
         request_payload.append(vdc_network_configuration)
 
+        # list_edge_gateways
+        gws = self.list_edge_gateways()
+        gateway_href = None
+        for gw in gws:
+            if gw['name'] == gateway_name:
+                gateway_href = gw['href']
+        request_payload.append(E.EdgeGateway(name=gateway_name, href=gateway_href))
+
         dhcp_service = E.DhcpService()
         if is_dhcp_enabled is not None:
             dhcp_service.append(E.IsEnabled(is_dhcp_enabled))
@@ -941,14 +949,6 @@ class VDC(object):
             dhcp_ip_range.append(E.EndAddress(dhcp_ip_range_end))
             dhcp_service.append(dhcp_ip_range)
         request_payload.append(E.ServiceConfig(dhcp_service))
-
-        # list_edge_gateways
-        gws = self.list_edge_gateways()
-        gateway_href = None
-        for gw in gws:
-            if gw['name'] == gateway_name:
-                gateway_href = gw['href']
-        request_payload.append(E.EdgeGateway(name=gateway_name, href=gateway_href))
 
         if is_shared is not None:
             request_payload.append(E.IsShared(is_shared))
