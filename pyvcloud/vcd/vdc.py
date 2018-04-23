@@ -942,11 +942,16 @@ class VDC(object):
             dhcp_service.append(dhcp_ip_range)
         request_payload.append(E.ServiceConfig(dhcp_service))
 
+        # list_edge_gateways
+        gws = self.list_edge_gateways()
+        gateway_href = None
+        for gw in gws:
+            if gw['name'] == gateway_name:
+                gateway_href = gw['href']
+        request_payload.append(E.EdgeGateway(name=gateway_name, href=gateway_href))
+
         if is_shared is not None:
             request_payload.append(E.IsShared(is_shared))
-
-        # list_edge_gateways
-        request_payload.append(E.EdgeGateway(name=gateway_name))
 
         return self.client.post_linked_resource(
             self.resource, RelationType.ADD, EntityType.ORG_VDC_NETWORK.value,
