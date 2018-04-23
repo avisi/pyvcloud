@@ -334,6 +334,7 @@ class VApp(object):
         if self.resource is None:
             self.resource = self.client.get_resource(self.href)
         for vm in self.get_all_vms():
+            print(vm)
             if vm.get('name') == vm_name:
                 return vm
         raise EntityNotFoundException('Can\'t find VM \'%s\'' % vm_name)
