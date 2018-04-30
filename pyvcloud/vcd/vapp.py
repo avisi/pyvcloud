@@ -571,14 +571,21 @@ class VApp(object):
                 ip_allocation_mode = spec['ip_allocation_mode']
             else:
                 ip_allocation_mode = 'DHCP'
+
+            new_connection = E.NetworkConnection(
+                    E.NetworkConnectionIndex(primary_index),
+                    network=spec['network']
+            )
+
+            if spec['ip_address'] and ip_allocation_mode == 'MANUAL':
+                new_connection.append(E.IpAddress(spec['ip_address']))
+            new_connection.append(E.IsConnected(True))
+            new_connection.append(E.IpAddressAllocationMode(ip_allocation_mode.upper()))
+
             vm_instantiation_param.append(
                 E.NetworkConnectionSection(
                     E_OVF.Info(),
-                    E.NetworkConnection(
-                        E.NetworkConnectionIndex(primary_index),
-                        E.IsConnected(True),
-                        E.IpAddressAllocationMode(ip_allocation_mode.upper()),
-                        network=spec['network'])))
+                    new_connection))
 
         needs_customization = 'disk_size' in spec or 'password' in spec or \
             'cust_script' in spec or 'hostname' in spec
