@@ -303,13 +303,13 @@ class VApp(object):
 
         new_connection = E.NetworkConnection(
                 E.NetworkConnectionIndex(connection_index),
-                E.IsConnected(True),
-                E.IpAddressAllocationMode(ip_allocation_mode.upper()),
                 network=network_name
         )
-
         if ip_address and ip_allocation_mode == 'MANUAL':
             new_connection.append(E.IpAddress(ip_address))
+        new_connection.append(E.IsConnected('true'))
+        new_connection.append(E.IpAddressAllocationMode(ip_allocation_mode.upper()))
+
         if mac_address:
             new_connection.append(E.MACAddress(mac_address))
 
