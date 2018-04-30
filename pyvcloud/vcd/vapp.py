@@ -238,7 +238,7 @@ class VApp(object):
         return self.client.post_linked_resource(
             self.resource, RelationType.POWER_REBOOT, None, None)
 
-    def connect_vm(self, mode='DHCP', reset_mac_address=False):
+    def connect_first_vm(self, mode='DHCP', reset_mac_address=False):
         if self.resource is None:
             self.resource = self.client.get_resource(self.href)
         if hasattr(self.resource, 'Children') and \
@@ -265,6 +265,58 @@ class VApp(object):
                 self.resource.Children.Vm[0].NetworkConnectionSection,
                 RelationType.EDIT, EntityType.NETWORK_CONNECTION_SECTION.value,
                 self.resource.Children.Vm[0].NetworkConnectionSection)
+
+    def connect_vm(self, vm_name, network_name, connection_index,
+                   connections_primary_index=None, ip_allocation_mode='DHCP',
+                   mac_address=None, ip_address=None):
+        """
+        Attach a single vm to a virtual network.
+
+        :param vm_name: (str): The name of the vm that the network will be attached to.
+        :param network_name: (str): The network name to connect the VM to.
+        :param connection_index: (str): Virtual slot number associated with this NIC. First slot number is 0.
+        :param connections_primary_index: (str): Virtual slot number associated with the NIC that should be considered this \n
+                  virtual machine's primary network connection. Defaults to slot 0.
+        :param ip_allocation_mode: (str, optional): IP address allocation mode for this connection.
+
+                                 * One of:
+
+                                  - POOL (A static IP address is allocated automatically from a pool of addresses.)
+
+                                  - DHCP (The IP address is obtained from a DHCP service.)
+
+                                  - MANUAL (The IP address is assigned manually in the IpAddress element.)
+
+                                  - NONE (No IP addressing mode specified.)
+
+        :param mac_address: (str):    the MAC address associated with the NIC.
+        :param ip_address: (str):     the IP address assigned to this NIC.
+        :return: (TaskType) a :class:`pyvcloud.schema.vcd.v1_5.schemas.admin.vCloudEntities.TaskType` object that can be used to monitor the request.
+        :raises: Exception: If the named VM cannot be located or another error occured.
+
+        """
+
+        if self.resource is None:
+            self.resource = self.client.get_resource(self.href)
+
+        vm = self.get_vm(vm_name)
+
+        new_connection = E.NetworkConnection(
+                E.NetworkConnectionIndex(index),
+                E.IsConnected(True),
+                E.IpAddressAllocationMode(ip_allocation_mode.upper()),
+                network=network_name
+        )
+
+        if ip_address and ip_allocation_mode == 'MANUAL':
+            new_connection.append(E.IpAddress(ip_address))
+        if mac_address:
+            new_connection.append(E.MACAddress(mac_address))
+
+        return self.client.put_linked_resource(
+            vm.NetworkConnectionSection,
+            RelationType.EDIT, EntityType.NETWORK_CONNECTION_SECTION.value,
+            new_connection)
 
     def attach_disk_to_vm(self, disk_href, vm_name):
         """Attach the independent disk to the VM with the given name.
@@ -335,7 +387,6 @@ class VApp(object):
         if self.resource is None:
             self.resource = self.client.get_resource(self.href)
         for vm in self.get_all_vms():
-            print(vm)
             if vm.get('name') == vm_name:
                 return vm
         raise EntityNotFoundException('Can\'t find VM \'%s\'' % vm_name)
@@ -498,8 +549,7 @@ class VApp(object):
             representing the 'SourcedItem' xml object created from the
             specification.
         """
-        source_vapp = VApp(self.client, resource=spec['vapp'])
-        print(source_vapp)
+        source_vapp = VApp(self.client, href=spec['vapp'].get('href'))
         source_vm_resource = source_vapp.get_vm(spec['source_vm_name'])
 
         sourced_item = E.SourcedItem(
@@ -603,6 +653,9 @@ class VApp(object):
             params.append(self.to_sourced_item(spec))
         if all_eulas_accepted is not None:
             params.append(E.AllEULAsAccepted(all_eulas_accepted))
+        
+        self.resource = self.client.get_resource(self.href)
+
         return self.client.post_linked_resource(
             self.resource, RelationType.RECOMPOSE,
             EntityType.RECOMPOSE_VAPP_PARAMS.value, params)
