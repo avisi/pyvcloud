@@ -302,7 +302,7 @@ class VApp(object):
         vm = self.get_vm(vm_name)
 
         new_connection = E.NetworkConnection(
-                E.NetworkConnectionIndex(index),
+                E.NetworkConnectionIndex(connection_index),
                 E.IsConnected(True),
                 E.IpAddressAllocationMode(ip_allocation_mode.upper()),
                 network=network_name
