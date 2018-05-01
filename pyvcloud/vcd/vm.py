@@ -260,3 +260,18 @@ class VM(object):
                 if 'VIRTUAL_MACHINE' == record.VimObjectType.text:
                     return record.VimServerRef.get('name')
         return None
+
+    def get_disksize(self):
+        """Returns the amount of disk space in MB.
+
+        :return: (int): Amount of disk size in MB
+        """
+        if self.resource is None:
+            self.resource = self.client.get_resource(self.href)
+
+        totalSizeMb = 0
+        for setting in self.resource.VmSpecSection.DiskSection.DiskSettings:
+            if hasattr(setting, 'Disk'):
+                totalSizeMb += int(setting.SizeMb.text)
+
+        return int(totalSizeMb)
