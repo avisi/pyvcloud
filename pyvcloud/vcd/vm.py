@@ -271,7 +271,6 @@ class VM(object):
 
         totalSizeMb = 0
         for setting in self.resource.VmSpecSection.DiskSection.DiskSettings:
-            if hasattr(setting, 'Disk'):
-                totalSizeMb += int(setting.SizeMb.text)
+            totalSizeMb += int(setting.SizeMb.text)
 
         return int(totalSizeMb)
