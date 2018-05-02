@@ -1148,6 +1148,23 @@ class VDC(object):
                 'OrgVdc network with name \'%s\' not found.' % name)
         return result[0]
 
+    def get_natrouted_orgvdc_network(self, name):
+        """Retrieve a natRouted orgvdc network in the current vdc.
+
+        :param name: (str): Name of the orgvdc network we want to retrieve.
+
+        :return:  A :class:`lxml.objectify.StringElement` object representing
+            a natRouted orgvdc network resource.
+
+        :raises: Exception: If orgvdc network with the given name is not found.
+        """
+        result = self.list_orgvdc_network_resources(
+            name=name, type=FenceMode.NATROUTED.value)
+        if len(result) == 0:
+            raise Exception(
+                'OrgVdc network with name \'%s\' not found.' % name)
+        return result[0]
+
     def delete_direct_orgvdc_network(self, name, force=False):
         """Delete a directly connected orgvdc network in the current vdc.
 
@@ -1179,5 +1196,22 @@ class VDC(object):
         :raises: Exception: If orgvdc network with the given name is not found.
         """
         net_resource = self.get_isolated_orgvdc_network(name)
+        return self.client.delete_resource(
+            net_resource.get('href'), force=force)
+
+    def delete_natrouted_orgvdc_network(self, name, force=False):
+        """Delete an isolated orgvdc network in the current vdc.
+
+        :param name: (str): Name of the orgvdc network to be deleted.
+        :param force: (bool): If True, will instruct vcd to force delete
+            the network, ignoring whether it's connected to a vm or vapp
+            network or not.
+
+        :return:  A :class:`lxml.objectify.StringElement` object describing
+            the asynchronous task that's deleting the network.
+
+        :raises: Exception: If orgvdc network with the given name is not found.
+        """
+        net_resource = self.get_natrouted_orgvdc_network(name)
         return self.client.delete_resource(
             net_resource.get('href'), force=force)
