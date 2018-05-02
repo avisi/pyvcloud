@@ -1159,7 +1159,7 @@ class VDC(object):
         :raises: Exception: If orgvdc network with the given name is not found.
         """
         result = self.list_orgvdc_network_resources(
-            name=name, type=FenceMode.NATROUTED.value)
+            name=name, type=FenceMode.NAT_ROUTED.value)
         if len(result) == 0:
             raise Exception(
                 'OrgVdc network with name \'%s\' not found.' % name)
