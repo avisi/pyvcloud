@@ -400,6 +400,36 @@ class VDC(object):
                 })
         return edge_gateways
 
+    def create_edge_gateway(self,
+                            name,
+                            gatewayBackingConfig='full',
+                            gatewayInterfaces=[]):
+        """Request the creation of an Edge Gateway.
+
+        :param name: (str): The name of the new edge gateway.
+
+        :return:  A :class:`lxml.objectify.StringElement` object containing
+            the sparse representation of the new disk and the asynchronus task
+            that is creating the disk.
+        """
+        if self.resource is None:
+            self.resource = self.client.get_resource(self.href)
+
+        gw_interfaces = []
+        for interface in gatewayInterfaces:
+            gw_interfaces.append(E.GatewayInterface(name=interface))
+
+        edge_gateway = E.EdgeGateway(
+            E.GatewayConfigurationType(
+                E.GatewayBackingConfig(gatewayBackingConfig),
+                E.GatewayInterfaces(gw_interfaces)),
+            name=name
+        )
+
+        return self.client.post_linked_resource(
+            self.resource, RelationType.ADD,
+            EntityType.EDGE_GATEWAY.value, edge_gateway)
+
     def create_disk(self,
                     name,
                     size,
@@ -856,26 +886,28 @@ class VDC(object):
             request_payload)
 
     def create_natrouted_vdc_network(self,
-                                    network_name,
-                                    gateway_name,
-                                    gateway_ip,
-                                    netmask,
-                                    description=None,
-                                    primary_dns_ip=None,
-                                    secondary_dns_ip=None,
-                                    dns_suffix=None,
-                                    ip_range_start=None,
-                                    ip_range_end=None,
-                                    is_dhcp_enabled=None,
-                                    default_lease_time=None,
-                                    max_lease_time=None,
-                                    dhcp_ip_range_start=None,
-                                    dhcp_ip_range_end=None,
-                                    is_shared=None):
+                                     network_name,
+                                     gateway_name,
+                                     gateway_ip,
+                                     netmask,
+                                     description=None,
+                                     primary_dns_ip=None,
+                                     secondary_dns_ip=None,
+                                     dns_suffix=None,
+                                     ip_range_start=None,
+                                     ip_range_end=None,
+                                     is_dhcp_enabled=None,
+                                     default_lease_time=None,
+                                     max_lease_time=None,
+                                     dhcp_ip_range_start=None,
+                                     dhcp_ip_range_end=None,
+                                     is_shared=None):
         """Create a new natRouted OrgVdc network in this vdc.
 
         :param network_name: (str): Name of the new network.
-        :param gateway_name: (str): The name of an existing edge Gateway appliance that will manage the virtual network.
+        :param gateway_name: (str): The name of an existing edge Gateway
+                                    appliance that will manage the virtual
+                                    network.
         :param gateway_ip: (str): IP address of the gateway of the new network.
         :param netmask: (str): Network mask.
         :param description: (str): Description of the new network.
@@ -925,7 +957,8 @@ class VDC(object):
             ip_range.append(E.EndAddress(ip_range_end))
             ip_scope.append(E.IpRanges(ip_range))
         vdc_network_configuration.append(E.IpScopes(ip_scope))
-        vdc_network_configuration.append(E.FenceMode(FenceMode.NAT_ROUTED.value))
+        vdc_network_configuration.append(
+            E.FenceMode(FenceMode.NAT_ROUTED.value))
         request_payload.append(vdc_network_configuration)
 
         # list_edge_gateways
@@ -934,7 +967,8 @@ class VDC(object):
         for gw in gws:
             if gw['name'] == gateway_name:
                 gateway_href = gw['href']
-        request_payload.append(E.EdgeGateway(name=gateway_name, href=gateway_href))
+        request_payload.append(E.EdgeGateway(name=gateway_name,
+                                             href=gateway_href))
 
         dhcp_service = E.DhcpService()
         if is_dhcp_enabled is not None:
@@ -1113,6 +1147,15 @@ class VDC(object):
         """
         return self.list_orgvdc_network_resources(
             type=FenceMode.ISOLATED.value)
+
+    def list_orgvdc_natrouted_networks(self):
+        """Fetch all isolated orgvdc networks in the current vdc.
+
+        :return:  A list of :class:`lxml.objectify.StringElement` objects
+            representing all isolated orgvdc network resources.
+        """
+        return self.list_orgvdc_network_resources(
+            type=FenceMode.NAT_ROUTED.value)
 
     def get_direct_orgvdc_network(self, name):
         """Retrieve a directly connected orgvdc network in the current vdc.
