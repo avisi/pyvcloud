@@ -1,3 +1,18 @@
+# VMware vCloud Director Python SDK
+# Copyright (c) 2018 VMware, Inc. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import unittest
 
 from pyvcloud.system_test_framework.base_test import BaseTestCase
@@ -11,6 +26,7 @@ from pyvcloud.vcd.client import TaskStatus
 class TestDisk(BaseTestCase):
     """Test independent disk functionalities implemented in pyvcloud."""
 
+    _test_runner_role = CommonRoles.VAPP_AUTHOR
     _client = None
 
     _idisk1_name = 'test_idisk'
@@ -34,29 +50,30 @@ class TestDisk(BaseTestCase):
     def test_0000_setup(self):
         """Setup the independent disks for the other tests in this module.
 
-        Create three independent disks as per the configuration stated
-            above. In case the disks exist, re-use them.
+        Create three independent disks as per the configuration stated above.
+        In case the disks exist, re-use them.
 
         This test passes if all the three disk ids are not None.
         """
         logger = Environment.get_default_logger()
         TestDisk._client = Environment.get_client_in_default_org(
-            CommonRoles.CATALOG_AUTHOR)
+            TestDisk._test_runner_role)
         vdc = Environment.get_test_vdc(TestDisk._client)
 
         disks = vdc.get_disks()
         for disk in disks:
-            if TestDisk._idisk1_id is None and disk.get('name').lower() \
-               == self._idisk1_name:
+            if TestDisk._idisk1_id is None and \
+                    disk.get('name').lower() == self._idisk1_name:
                 logger.debug('Reusing ' + TestDisk._idisk1_name)
                 TestDisk._idisk1_id = disk.get('id')[16:]
-            elif TestDisk._idisk2_id is None and disk.get('name').lower() \
-              == self._idisk2_name and str(disk.Description).lower() \
-              == self._idisk2_description.lower(): # NOQA
+            elif TestDisk._idisk2_id is None and \
+                    disk.get('name').lower() == self._idisk2_name and \
+                    str(disk.Description).lower() == \
+                    self._idisk2_description.lower():
                 logger.debug('Reusing ' + TestDisk._idisk2_name)
                 TestDisk._idisk2_id = disk.get('id')[16:]
-            elif TestDisk._idisk3_id is None and disk.get('name').lower() \
-              == self._idisk3_name: # NOQA
+            elif TestDisk._idisk3_id is None and \
+                    disk.get('name').lower() == self._idisk3_name:
                 logger.debug('Reusing ' + TestDisk._idisk3_name)
                 TestDisk._idisk3_id = disk.get('id')[16:]
 
@@ -107,7 +124,7 @@ class TestDisk(BaseTestCase):
         """Test the  method vdc.get_disks().
 
         This test passes if all the expected disk names are in the list of
-            disk returned by vdc.det_disks()
+        disk returned by vdc.det_disks()
         """
         vdc = Environment.get_test_vdc(TestDisk._client)
         disks = vdc.get_disks()
@@ -129,8 +146,8 @@ class TestDisk(BaseTestCase):
 
         Invoke the method with the name of the first independent disk.
 
-        This test passes if the disk returned by the method is nor None,
-            and it's name matches the expected name of the disk.
+        This test passes if the disk returned by the method is nor None, and
+        its name matches the expected name of the disk.
         """
         vdc = Environment.get_test_vdc(TestDisk._client)
 
@@ -144,8 +161,8 @@ class TestDisk(BaseTestCase):
 
         Invoke the method with the id of the second independent disk.
 
-        This test passes if the disk returned by the method is nor None,
-            and it's id matches the expected id of the disk.
+        This test passes if the disk returned by the method is nor None, and
+        its id matches the expected id of the disk.
         """
         vdc = Environment.get_test_vdc(TestDisk._client)
 
@@ -156,12 +173,12 @@ class TestDisk(BaseTestCase):
     def test_0040_change_idisk_owner(self):
         """Test the  method vdc.change_disk_owner().
 
-        Invoke the method for the third independent disk, to make vapp_user
-            the owner of the disk. Revert back teh ownership to catalog_author
-            once the test is over.
+        Invoke the method for the third independent disk, to make vapp_user the
+        owner of the disk. Revert back the ownership to the original owner once
+        the test is over.
 
-        This test passes if the disk states it's owner as vapp_user after
-            the method call.
+        This test passes if the disk states its owner as vapp_user after the
+        method call.
         """
         org_admin_client = Environment.get_client_in_default_org(
             CommonRoles.ORGANIZATION_ADMINISTRATOR)
@@ -181,9 +198,9 @@ class TestDisk(BaseTestCase):
             new_owner_name = disk_resource.Owner.User.get('name')
             self.assertEqual(new_owner_name, username)
 
-            # Revert ownership to catalog author
+            # Revert ownership to original owner
             username = Environment.get_username_for_role_in_test_org(
-                CommonRoles.CATALOG_AUTHOR)
+                TestDisk._test_runner_role)
             user_resource = org.get_user(username)
 
             vdc.change_disk_owner(
@@ -199,8 +216,8 @@ class TestDisk(BaseTestCase):
     def test_0050_attach_disk_to_vm_in_vapp(self):
         """Test the  method vapp.attach_disk_to_vm().
 
-        Invoke the method for the second independent disk, to attach it to
-            the default test vm available in the Environment.
+        Invoke the method for the second independent disk, and attach it to the
+        default test vm available in the Environment.
 
         This test passes if the disk attachment task succeeds.
         """
@@ -212,11 +229,15 @@ class TestDisk(BaseTestCase):
         disk = vdc.get_disk(disk_id=TestDisk._idisk2_id)
 
         try:
-            result = vapp.attach_disk_to_vm(
+            if vapp.is_suspended():
+                task = vapp.deploy()
+                org_admin_client.get_task_monitor().wait_for_success(task=task)
+
+            task = vapp.attach_disk_to_vm(
                 disk_href=disk.get('href'), vm_name=vm_name)
-            task = org_admin_client.get_task_monitor().wait_for_success(
-                task=result)
-            self.assertEqual(task.get('status'), TaskStatus.SUCCESS.value)
+            result = org_admin_client.get_task_monitor().wait_for_success(
+                task=task)
+            self.assertEqual(result.get('status'), TaskStatus.SUCCESS.value)
         finally:
             org_admin_client.logout()
 
@@ -224,9 +245,9 @@ class TestDisk(BaseTestCase):
         """Test the  method vapp.detach_disk_to_vm().
 
         Invoke the method for the second independent disk, to detach it from
-            the default test vm available in the Environment. we need to power
-            down the vm before running this test, and power it back on once the
-            test is over.
+        the default test vm available in the Environment. we need to power down
+        the vm before running this test, and power it back on once the test is
+        over.
 
         This test passes if the disk detachment task succeeds.
         """
@@ -239,7 +260,10 @@ class TestDisk(BaseTestCase):
 
         try:
             # vm needs to be powered off for detach to succeed.
-            self._power_off_vapp(org_admin_client, vapp)
+            is_vapp_powered_on_before_test = vapp.is_powered_on()
+            if is_vapp_powered_on_before_test:
+                task = vapp.power_off()
+                org_admin_client.get_task_monitor().wait_for_success(task=task)
 
             vapp.reload()
             result = vapp.detach_disk_from_vm(
@@ -249,37 +273,21 @@ class TestDisk(BaseTestCase):
             self.assertEqual(task.get('status'), TaskStatus.SUCCESS.value)
 
             vapp.reload()
-            # power on vapp, once detaching disk is successful, for sanity of
-            # next test run.
-            self._power_on_vapp(org_admin_client, vapp)
+            # restore vApp to powered on state (if required)
+            if is_vapp_powered_on_before_test:
+                task = vapp.power_on()
+                org_admin_client.get_task_monitor().wait_for_success(task=task)
         finally:
             org_admin_client.logout()
-
-    def _power_off_vapp(self, org_admin_client, vapp):
-        # TODO(VCDA-603) : update power_off to handle missing link exception
-        try:
-            task = vapp.power_off()
-            org_admin_client.get_task_monitor().wait_for_success(task=task)
-        except Exception as e:
-            pass
-
-    def _power_on_vapp(self, org_admin_client, vapp):
-        # TODO(VCDA-603) : update power_on to handle missing link exception
-        try:
-            task = vapp.power_on()
-            org_admin_client.get_task_monitor().wait_for_success(task=task)
-        except Exception as e:
-            pass
 
     def test_0070_update_disk(self):
         """Test the  method vapp.update_disk().
 
-        Invoke the method for the first independent disk, to update it's
-            name, size and description. Revert the changes back once the test
-            is over.
+        Invoke the method for the first independent disk, to update its name,
+        size and description. Revert the changes back once the test is over.
 
         This test passes if the updated disk's name, size and description
-            matches the expected values.
+        matches the expected values.
         """
         vdc = Environment.get_test_vdc(TestDisk._client)
 
@@ -298,7 +306,7 @@ class TestDisk(BaseTestCase):
         self.assertEqual(disk.get('size'), str(self._idisk1_new_size))
         self.assertEqual(disk.Description, self._idisk1_new_description)
 
-        # return disk 1 to original state
+        # return disk1 to original state
         result = vdc.update_disk(
             name=self._idisk1_new_name,
             new_name=self._idisk1_name,

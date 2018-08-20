@@ -21,7 +21,9 @@ from pyvcloud.vcd.client import EntityType
 from pyvcloud.vcd.client import FenceMode
 from pyvcloud.vcd.client import find_link
 from pyvcloud.vcd.client import NSMAP
+from pyvcloud.vcd.client import QueryResultFormat
 from pyvcloud.vcd.client import RelationType
+from pyvcloud.vcd.client import ResourceType
 from pyvcloud.vcd.exceptions import EntityNotFoundException
 from pyvcloud.vcd.exceptions import InvalidParameterException
 from pyvcloud.vcd.exceptions import MultipleRecordsException
@@ -32,6 +34,15 @@ from pyvcloud.vcd.utils import get_admin_href
 
 class VDC(object):
     def __init__(self, client, name=None, href=None, resource=None):
+        """Constructor for VDC objects.
+
+        :param pyvcloud.vcd.client.Client client: the client that will be used
+            to make REST calls to vCD.
+        :param str name: name of the entity.
+        :param str href: URI of the entity.
+        :param lxml.objectify.ObjectifiedElement resource: object containing
+            EntityType.VDC XML data representing the org vdc.
+        """
         self.client = client
         self.name = name
         if href is None and resource is None:
@@ -46,11 +57,35 @@ class VDC(object):
         self.href_admin = get_admin_href(self.href)
 
     def get_resource(self):
+        """Fetches the XML representation of the org vdc from vCD.
+
+        Will serve cached response if possible.
+
+        :return: object containing EntityType.VDC XML data representing the
+            org vdc.
+
+        :rtype: lxml.objectify.ObjectifiedElement
+        """
         if self.resource is None:
-            self.resource = self.client.get_resource(self.href)
+            self.reload()
         return self.resource
 
     def get_resource_href(self, name, entity_type=EntityType.VAPP):
+        """Fetches href of a vApp in the org vdc from vCD.
+
+        :param str name: name of the vApp.
+        :param pyvcloud.vcd.client.EntityType entity_type: type of entity we
+            want to retrieve. *Please note that this function is incapable of
+            returning anything other than vApps at this point.*
+
+        :return: href of the vApp identified by its name.
+
+        :rtype: str
+
+        :raises: EntityNotFoundException: if the named vApp can not be found.
+        :raises: MultipleRecordsException: if more than one vApp with the
+            provided name are found.
+        """
         if self.resource is None:
             self.resource = self.client.get_resource(self.href)
         result = []
@@ -71,15 +106,42 @@ class VDC(object):
         return result[0]
 
     def reload(self):
+        """Reloads the resource representation of the org vdc.
+
+        This method should be called in between two method invocations on the
+        VDC object, if the former call changes the representation of the
+        org vdc in vCD.
+        """
         self.resource = self.client.get_resource(self.href)
         if self.resource is not None:
             self.name = self.resource.get('name')
             self.href = self.resource.get('href')
 
     def get_vapp(self, name):
+        """Fetches XML representation of a vApp in the org vdc from vCD.
+
+        :param str name: name of the vApp.
+
+        :return: object containing EntityType.VAPP XML data representing the
+            vApp.
+
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises: EntityNotFoundException: if the named vApp can not be found.
+        :raises: MultipleRecordsException: if more than one vApp with the
+            provided name are found.
+        """
         return self.client.get_resource(self.get_resource_href(name))
 
     def delete_vapp(self, name, force=False):
+        """Delete a vApp in the current org vdc.
+
+        :param str name: name of the vApp to be deleted.
+
+        :raises: EntityNotFoundException: if the named vApp can not be found.
+        :raises: MultipleRecordsException: if more than one vApp with the
+            provided name are found.
+        """
         href = self.get_resource_href(name)
         return self.client.delete_resource(href, force)
 
@@ -107,42 +169,43 @@ class VDC(object):
                          network_adapter_type=None):
         """Instantiate a vApp from a vApp template in a catalog.
 
-        If customization parameters are provided, it will customize the VM and
+        If customization parameters are provided, it will customize the vm and
         guest OS, taking some assumptions.
-        See each parameter for details.
 
-        :param name: (str): The name of the new vApp.
-        :param catalog: (str): The name of the catalog.
-        :param template: (str): The name of the vApp template.
-        :param description: (str): Description of the new vApp.
-        :param network: (str): The name of a vdc network.
-            When provided, connects the VM to the network.
-            It assumes one VM in the vApp and one NIC in the VM.
-        :param fence_mode: (str): Fence mode.
-            Possible values are `bridged` and `natRouted`
-        :param ip_allocation_mode: (str): IP allocation mode.
-            Possible values are `pool`, `dhcp` and `manual`
-        :param deploy: (bool):
-        :param power_on: (bool):
-        :param accept_all_eulas: (bool): True confirms acceptance of all EULAs
-            in a vApp template.
-        :param memory: (int):
-        :param cpu: (int):
-        :param disk_size: (int):
-        :param password: (str):
-        :param cust_script: (str):
-        :param vm_name: (str): When provided, set the name of the VM.
-            It assumes one VM in the vApp.
-        :param ip_address: (str): When provided, set the ip_address of the VM.
-            It assumes one VM in the vApp
-        :param hostname: (str): When provided, set the hostname of the guest
-            OS. It assumes one VM in the vApp.
-        :param storage_profile: (str):
-        :param network_adapter_type: (str): Network Adapter Type.
-            Please see pyvcloud.vcd.client.NetworkAdapterType.
+        A general assumption is made by this method that there is only one vm
+        in the vApp. And the vm has only one NIC.
 
-        :return:  A :class:`lxml.objectify.StringElement` object describing the
-            new vApp.
+        :param str name: name of the new vApp.
+        :param str catalog: name of the catalog.
+        :param str template: name of the vApp template.
+        :param str description: description of the new vApp.
+        :param str network: name of a vdc network. When provided, connects the
+            vm to the network.
+        :param str fence_mode: fence mode. Possible values are
+            pyvcloud.vcd.client.FenceMode.BRIDGED.value and
+            pyvcloud.vcd.client.FenceMode.NAT_ROUTED.value.
+        :param str ip_allocation_mode: ip allocation mode. Acceptable values
+            are `pool`, `dhcp` and `manual`.
+        :param bool deploy: if True deploy the vApp after instantiation.
+        :param bool power_on: if True, power on the vApp after instantiation.
+        :param bool accept_all_eulas: True, confirms acceptance of all EULAs in
+            a vApp template.
+        :param int memory:
+        :param int cpu:
+        :param int disk_size:
+        :param str password:
+        :param str cust_script:
+        :param str vm_name: (str): when provided, sets the name of the vm.
+        :param str ip_address: when provided, sets the ip_address of the vm.
+        :param str hostname: when provided, sets the hostname of the guest OS.
+        :param str storage_profile:
+        :param str network_adapter_type: One of the values in
+            pyvcloud.vcd.client.NetworkAdapterType.
+
+        :return: an object containing EntityType.VAPP XML data which
+            represents the new vApp.
+
+        :rtype: lxml.objectify.ObjectifiedElement
         """
         if self.resource is None:
             self.resource = self.client.get_resource(self.href)
@@ -305,7 +368,7 @@ class VDC(object):
                 guest_customization_param.append(E.ComputerName(hostname))
             vm_instantiation_param.append(guest_customization_param)
 
-        # Craft the <SourcedItem> element for the first VM
+        # Craft the <SourcedItem> element for the first vm
         sourced_item = E.SourcedItem(
             E.Source(
                 href=vms[0].get('href'),
@@ -366,6 +429,18 @@ class VDC(object):
             vapp_template_params)
 
     def list_resources(self, entity_type=None):
+        """Fetch information about all resources in the current org vdc.
+
+        :param str entity_type: filter to restrict type of resource we want to
+            fetch. EntityType.VAPP.value and EntityType.VAPP_TEMPLATE.value
+            both are acceptable values.
+
+        :return: a list of dictionaries, where each dictionary represents a
+            resource e.g. vApp templates, vApps. And each dictionary has 'name'
+            and 'type' of the resource.
+
+        :rtype: dict
+        """
         if self.resource is None:
             self.resource = self.client.get_resource(self.href)
         result = []
@@ -381,10 +456,12 @@ class VDC(object):
         return result
 
     def list_edge_gateways(self):
-        """Request a list of edge gateways defined in a vdc.
+        """Fetch a list of edge gateways defined in a vdc.
 
-        :return: A list of :class:`lxml.objectify.StringElement' objects
-            representing existing edge gateway records.
+        :return: a list of dictionaries, where each dictionary contains the
+            name and href of an edge gateway.
+
+        :rtype: list
         """
         if self.resource is None:
             self.resource = self.client.get_resource(self.href)
@@ -438,20 +515,22 @@ class VDC(object):
                     description=None,
                     storage_profile_name=None,
                     iops=None):
-        """Request the creation of an indendent disk.
+        """Request the creation of an independent disk.
 
-        :param name: (str): The name of the new disk.
-        :param size: (int): The size of the new disk in bytes.
-        :param bus_type: (str): The bus type of the new disk.
-        :param bus_sub_type: (str): The bus subtype  of the new disk.
-        :param description: (str): A description of the new disk.
-        :param storage_profile_name: (str): The name of an existing
-            storage profile to be used by the new disk.
-        :param iops: (int): Iops requirement of the new disk.
+        :param str name: name of the new disk.
+        :param int size: size of the new disk in bytes.
+        :param str bus_type: bus type of the new disk.
+        :param str bus_sub_type: bus subtype of the new disk.
+        :param str description: description of the new disk.
+        :param str storage_profile_name: name of an existing storage profile to
+            be used by the new disk.
+        :param int iops: iops requirement of the new disk.
 
-        :return:  A :class:`lxml.objectify.StringElement` object containing
-            the sparse representation of the new disk and the asynchronus task
+        :return: an object containing EntityType.DISK XML data which represents
+            the new disk being created along with the the asynchronous task
             that is creating the disk.
+
+        :rtype: lxml.objectify.ObjectifiedElement
         """
         if self.resource is None:
             self.resource = self.client.get_resource(self.href)
@@ -489,20 +568,21 @@ class VDC(object):
                     new_iops=None):
         """Update an existing independent disk.
 
-        :param name: (str): The name of the existing disk.
-        :param disk_id: (str): The id of the existing disk.
-        :param new_name: (str): The new name of the disk.
-        :param new_size: (int): The new size of the disk in bytes.
-        :param new_description: (str): The new description of the disk.
-        :param new_storage_profile_name: (str): The new storage profile that
-            the disk will be moved to.
-        :param new_iops: (int): The new iops requirement of the disk.
+        :param str name: name of the existing disk.
+        :param str disk_id: id of the existing disk.
+        :param str new_name: new name of the disk.
+        :param str new_size: new size of the disk in bytes.
+        :param str new_description: new description of the disk.
+        :param str new_storage_profile_name: new storage profile that the disk
+            will be moved to.
+        :param int new_iops: new iops requirement of the disk.
 
-        :return:  A :class:`lxml.objectify.StringElement` object describing
-            the asynchronous task updating the disk.
+        :return: an object containing EntityType.TASK XML data which represents
+            the asynchronous task that is updating the disk.
 
-        :raises: Exception: If the named disk cannot be located or some
-            other error occurs.
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises: EntityNotFoundException: if the named disk cannot be located.
         """
         if self.resource is None:
             self.resource = self.client.get_resource(self.href)
@@ -543,14 +623,15 @@ class VDC(object):
     def delete_disk(self, name=None, disk_id=None):
         """Delete an existing independent disk.
 
-        :param name: (str): The name of the Disk to delete.
-        :param disk_id: (str): The id of the disk to delete.
+        :param str name: name of the disk to delete.
+        :param str disk_id: id of the disk to delete.
 
-        :return:  A :class:`lxml.objectify.StringElement` object describing
-            the asynchronous task deleting the disk.
+        :return: an object containing EntityType.TASK XML data which represents
+            the asynchronous task that is deleting the disk.
 
-        :raises: Exception: If the named disk cannot be located or some
-            other error occurs.
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises: EntityNotFoundException: if the named disk cannot be located.
         """
         if self.resource is None:
             self.resource = self.client.get_resource(self.href)
@@ -564,10 +645,15 @@ class VDC(object):
                                                   None)
 
     def get_disks(self):
-        """Request a list of independent disks defined in a vdc.
+        """Request a list of independent disks defined in the vdc.
 
-        :return: A list of :class:`lxml.objectify.StringElement' objects
-            describing the existing disks.
+        :return: a list of objects, where each object is an
+            lxml.objectify.ObjectifiedElement containing EntityType.DISK XML
+            element representing an independent disk. The object also contain
+            information of all the vms to which the independent disk is
+            attached to.
+
+        :rtype: list
         """
         if self.resource is None:
             self.resource = self.client.get_resource(self.href)
@@ -589,14 +675,17 @@ class VDC(object):
     def get_disk(self, name=None, disk_id=None):
         """Return information for an independent disk.
 
-        :param name: (str): The name of the disk.
-        :param disk_id: (str): The id of the disk.
+        :param str name: name of the disk.
+        :param str disk_id: id of the disk.
 
-        :return: A :class:`lxml.objectify.StringElement` object describing
-            the existing disk.
+        :return: an object containing EntityType.DISK XML data which represents
+            the disk.
 
-        :raises: Exception: If the named disk cannot be located or some
-            other error occurs.
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises: InvalidParameterException: if neither name nor the disk_id
+            param is specified.
+        :raises: EntityNotFoundException: if the named disk cannot be located.
         """
         if name is None and disk_id is None:
             raise InvalidParameterException(
@@ -614,7 +703,7 @@ class VDC(object):
             for disk in disks:
                 if disk.get('id') == disk_id:
                     result = disk
-                    # disk-id's are unique so it's ok to break the loop
+                    # disk-id's are unique so it is ok to break the loop
                     # and stop looking further.
                     break
         elif name is not None:
@@ -636,15 +725,12 @@ class VDC(object):
     def change_disk_owner(self, user_href, name=None, disk_id=None):
         """Change the ownership of an independent disk to a given user.
 
-        :param user_href: Href of the new owner (user).
-        :param name: Name of the independent disk.
-        :param disk_id: The id of the disk (required if there are multiple
+        :param str user_href: href of the new owner.
+        :param str name: name of the independent disk.
+        :param str disk_id: id of the disk (required if there are multiple
             disks with same name).
 
-        :return: None
-
-        :raises: Exception: If the named disk cannot be located or some
-            other error occurs.
+        :raises: EntityNotFoundException: if the named disk cannot be located.
         """
         if self.resource is None:
             self.resource = self.client.get_resource(self.href)
@@ -661,10 +747,13 @@ class VDC(object):
             disk.get('href') + '/owner/', new_owner, EntityType.OWNER.value)
 
     def get_storage_profiles(self):
-        """Request a list of the Storage Profiles defined in a vdc.
+        """Fetch a list of the Storage Profiles defined in a vdc.
 
-        :return: A list of :class:`lxml.objectify.StringElement' objects
-            representing the existing storage profiles.
+        :return: a list of lxml.objectify.ObjectifiedElement objects, where
+            each object contains VdcStorageProfile XML element representing an
+            existing storage profile.
+
+        :rtype: list
         """
         profile_list = []
         if self.resource is None:
@@ -678,12 +767,14 @@ class VDC(object):
         return None
 
     def get_storage_profile(self, profile_name):
-        """Request a specific Storage Profile within a Virtual Data Center.
+        """Fetch a specific Storage Profile within an org vdc.
 
-        :param profile_name: (str): The name of the requested storage profile.
-        :return: (VdcStorageProfileType)
-            A :class:`lxml.objectify.StringElement` object describing the
-            requested storage profile.
+        :param str profile_name: name of the requested storage profile.
+
+        :return: an object containing VdcStorageProfile XML element that
+            represents the requested storage profile.
+
+        :rtype: lxml.objectify.ObjectifiedElement
         """
         if self.resource is None:
             self.resource = self.client.get_resource(self.href)
@@ -700,19 +791,31 @@ class VDC(object):
     def enable_vdc(self, enable=True):
         """Enable current vdc.
 
-        :param enable: (bool): enable/disable the vdc.
-        :return: (OrgVdcType) updated vdc object.
+        :param bool enable: True, to enable the vdc. False, to disable the vdc.
+
+        :return: an object containing EntityType.VDC XML data representing the
+            updated org vdc.
+
+        :rtype: lxml.objectify.ObjectifiedElement
         """
         resource_admin = self.client.get_resource(self.href_admin)
-        link = RelationType.ENABLE if enable else RelationType.DISABLE
-        return self.client.post_linked_resource(resource_admin, link, None,
+        if enable:
+            rel = RelationType.ENABLE
+        else:
+            rel = RelationType.DISABLE
+
+        return self.client.post_linked_resource(resource_admin, rel, None,
                                                 None)
 
     def delete_vdc(self):
-        """Delete the current Organization vDC.
+        """Delete the current org vdc.
 
-        :param vdc_name: The name of the org vdc to delete
-        :return:
+        :param str vdc_name: name of the org vdc to delete.
+
+        :return: an object containing EntityType.TASK XML data which represents
+            the asynchronous task that is deleting the org vdc.
+
+        :rtype: lxml.objectify.ObjectifiedElement
         """
         if self.resource is None:
             self.resource = self.client.get_resource(self.href)
@@ -723,24 +826,30 @@ class VDC(object):
     def get_access_settings(self):
         """Get the access settings of the vdc.
 
-        :return:  A :class:`lxml.objectify.StringElement` object representing
-            the access settings of the vdc.
+        :return: an object containing EntityType.CONTROL_ACCESS_PARAMS which
+            represents the access control list of the vdc.
+
+        :rtype: lxml.objectify.ObjectifiedElement
         """
         acl = Acl(self.client, self.get_resource())
         return acl.get_access_settings()
 
     def add_access_settings(self, access_settings_list=None):
-        """Add access settings to a particular vdc.
+        """Add access settings to the vdc.
 
-        :param access_settings_list: (list of dict): list of access_setting
-            in the dict format. Each dict contains:
-            type: (str): type of the subject. 'Only 'user' allowed for vdc.
-            name: (str): name of the user.
-            access_level: (str): access_level of the particular subject.
-            Only 'ReadOnly' is allowed for vdc.
+        :param list access_settings_list: list of dictionaries, where each
+            dictionary represents a single access setting. The dictionary
+            structure is as follows,
 
-        :return:  A :class:`lxml.objectify.StringElement` object representing
-            the updated access control setting of the vdc.
+            - type: (str): type of the subject. One of 'org' or 'user'.
+            - name: (str): name of the user or org.
+            - access_level: (str): access_level of the particular subject.
+                Allowed values are 'ReadOnly', 'Change' or 'FullControl'.
+
+        :return: an object containing EntityType.CONTROL_ACCESS_PARAMS XML
+            data representing the updated Access Control List of the vdc.
+
+        :rtype: lxml.objectify.ObjectifiedElement
         """
         acl = Acl(self.client, self.get_resource())
         return acl.add_access_settings(access_settings_list)
@@ -748,17 +857,21 @@ class VDC(object):
     def remove_access_settings(self,
                                access_settings_list=None,
                                remove_all=False):
-        """Remove access settings from a particular vdc.
+        """Remove access settings from the vdc.
 
-        :param access_settings_list: (list of dict): list of access_setting
-            in the dict format. Each dict contains:
-            type: (str): type of the subject. Only 'user' allowed for vdc.
-            name: (str): name of the user.
-        :param remove_all: (bool) : True if all access settings of the vdc
-            should be removed
+        :param list access_settings_list: list of dictionaries, where each
+            dictionary represents a single access setting. The dictionary
+            structure is as follows,
 
-        :return:  A :class:`lxml.objectify.StringElement` object representing
-            the updated access control setting of the vdc.
+            - type: (str): type of the subject. One of 'org' or 'user'.
+            - name: (str): name of the user or org.
+        :param bool remove_all: True, if the entire Access Control List of the
+            vdc should be removed, else False.
+
+        :return: an object containing EntityType.CONTROL_ACCESS_PARAMS XML
+            data representing the updated access control setting of the vdc.
+
+        :rtype: lxml.objectify.ObjectifiedElement`
         """
         acl = Acl(self.client, self.get_resource())
         return acl.remove_access_settings(access_settings_list, remove_all)
@@ -766,11 +879,14 @@ class VDC(object):
     def share_with_org_members(self, everyone_access_level='ReadOnly'):
         """Share the vdc to all members of the organization.
 
-        :param everyone_access_level: (str) : access level when sharing the
-            vdc with everyone. Only 'ReadOnly' is allowed for vdc.
+        :param str everyone_access_level: level of access granted while
+            sharing the vdc with everyone. 'ReadOnly' is the only allowed
+            value.
 
-        :return:  A :class:`lxml.objectify.StringElement` object representing
-            the updated access control setting of the vdc.
+        :return: an object containing EntityType.CONTROL_ACCESS_PARAMS XML
+            data representing the updated access control setting of the vdc.
+
+        :rtype: lxml.objectify.ObjectifiedElement
         """
         acl = Acl(self.client, self.get_resource())
         return acl.share_with_org_members(everyone_access_level)
@@ -781,8 +897,10 @@ class VDC(object):
         Should give individual access to at least one user before unsharing
         access to the whole org.
 
-        :return:  A :class:`lxml.objectify.StringElement` object representing
-            the updated access control setting of the vdc.
+        :return: an object containing EntityType.CONTROL_ACCESS_PARAMS XML
+            data representing the updated access control setting of the vdc.
+
+        :rtype: lxml.objectify.ObjectifiedElement
         """
         acl = Acl(self.client, self.get_resource())
         return acl.unshare_from_org_members()
@@ -795,16 +913,20 @@ class VDC(object):
                     accept_all_eulas=None):
         """Create a new vApp in this vdc.
 
-        :param name: (str) Name of the new vApp.
-        :param description: (str) Description of the new vApp.
-        :param network: (str) Name of the OrgVDC network the vApp will
+        :param str name: name of the new vApp.
+        :param str description: description of the new vApp.
+        :param str network: name of the org vdc network that the vApp will
             connect to.
-        :param fence_mode: (str): Network fence mode.
-            Possible values are `bridged` and `natRouted`
-        :param accept_all_eulas: (bool): True confirms acceptance of all EULAs
-            in a vApp template.
-        :return:  A :class:`lxml.objectify.StringElement` object representing a
-            sparsely populated vApp element in the target vdc.
+        :param str fence_mode: network fence mode. Acceptable values are
+            pyvcloud.vcd.client.FenceMode.BRIDGED.value and
+            pyvcloud.vcd.client.FenceMode.NAT_ROUTED.value.
+        :param bool accept_all_eulas: True confirms acceptance of all EULAs
+            for the vApp template.
+
+        :return: an object containing EntityType.VAPP XML data which represents
+            the new created vApp in the org vdc.
+
+        :rtype: lxml.objectify.ObjectifiedElement
         """
         if self.resource is None:
             self.resource = self.client.get_resource(self.href)
@@ -851,17 +973,19 @@ class VDC(object):
                                               parent_network_name,
                                               description=None,
                                               is_shared=None):
-        """Create a new directly connected OrgVdc network in this vdc.
+        """Create a new directly connected org vdc network in this vdc.
 
-        :param network_name: (str): Name of the new network.
-        :param parent_network_name: (str): Name of the external network
-            that the new network will be directly connected to.
-        :param description: (str): Description of the new network.
-        :param is_shared: (bool): True, if the network is shared with
-            other vdc(s) in the organization, else False.
+        :param str network_name: name of the new network.
+        :param str parent_network_name: name of the external network that the
+            new network will be directly connected to.
+        :param str description: description of the new network.
+        :param bool is_shared: True, if the network is shared with other org
+            vdc(s) in the organization, else False.
 
-        :return: A :class:`lxml.objectify.StringElement` object representing
-            a sparsely populated OrgVdcNetwork element.
+        :return: an object containing EntityType.ORG_VDC_NETWORK XML data which
+            represents an org vdc network.
+
+        :rtype: lxml.objectify.ObjectifiedElement
         """
         if self.resource is None:
             self.resource = self.client.get_resource(self.href)
@@ -1009,31 +1133,33 @@ class VDC(object):
                                     is_shared=None):
         """Create a new isolated OrgVdc network in this vdc.
 
-        :param network_name: (str): Name of the new network.
-        :param gateway_ip: (str): IP address of the gateway of the new network.
-        :param netmask: (str): Network mask.
-        :param description: (str): Description of the new network.
-        :param primary_dns_ip: (str): IP address of primary DNS server.
-        :param secondary_dns_ip: (str): IP address of secondary DNS Server.
-        :param dns_suffix: (str): DNS suffix.
-        :param ip_range_start: (str): Start address of the IP ranges used for
+        :param str network_name: name of the new network.
+        :param str gateway_ip: IP address of the gateway of the new network.
+        :param str netmask: network mask.
+        :param str description: description of the new network.
+        :param str primary_dns_ip: IP address of primary DNS server.
+        :param str secondary_dns_ip: IP address of secondary DNS Server.
+        :param str dns_suffix: DNS suffix.
+        :param str ip_range_start: start address of the IP ranges used for
             static pool allocation in the network.
-        :param ip_range_end: (str): End address of the IP ranges used for
-            static pool allocation in the network.
-        :param is_dhcp_enabled: (bool): Is DHCP service enabled on the new
-            network.
-        :param default_lease_time: (int): Default lease in seconds for DHCP
+        :param str ip_range_end: end address of the IP ranges used for static
+            pool allocation in the network.
+        :param bool is_dhcp_enabled: True, if DHCP service is enabled on the
+            new network.
+        :param int default_lease_time: default lease in seconds for DHCP
             addresses.
-        :param max_lease_time: (int): Max lease in seconds for DHCP addresses.
-        :param dhcp_ip_range_start: (str): Start address of the IP range
-            used for DHCP addresses.
-        :param dhcp_ip_range_end: (str): End address of the IP range used for
+        :param int max_lease_time: max lease in seconds for DHCP addresses.
+        :param str dhcp_ip_range_start: start address of the IP range used for
             DHCP addresses.
-        :param is_shared: (bool): True, if the network is shared with other
-            vdc(s) in the organization, else False.
+        :param str dhcp_ip_range_end: end address of the IP range used for DHCP
+            addresses.
+        :param bool is_shared: True, if the network is shared with other vdc(s)
+            in the organization, else False.
 
-        :return: A :class:`lxml.objectify.StringElement` object representing
-            a sparsely populated OrgVdcNetwork element.
+        :return: an object containing EntityType.ORG_VDC_NETWORK XML data which
+            represents an org vdc network.
+
+        :rtype: lxml.objectify.ObjectifiedElement
         """
         if self.resource is None:
             self.resource = self.client.get_resource(self.href)
@@ -1084,32 +1210,58 @@ class VDC(object):
             request_payload)
 
     def list_orgvdc_network_records(self):
-        """Fetch all the orgvdc networks in the current vdc.
+        """Fetch all orgvdc networks in the current vdc.
 
-        :return:  A list of :class:`lxml.objectify.StringElement` objects
-            representing all orgvdc network records.
+        :return: org vdc network data in form of
+            lxml.objectify.ObjectifiedElement objects, where each object
+            contains OrgVdcNetworkRecord XML element.
+
+        :rtype: generator object
         """
-        if self.resource is None:
-            self.resource = self.client.get_resource(self.href)
+        resource_type = ResourceType.ORG_VDC_NETWORK.value
+        vdc_filter = 'vdc==%s' % self.href
 
-        records = self.client.get_linked_resource(
-            self.resource, RelationType.ORG_VDC_NETWORKS,
-            EntityType.RECORDS.value)
+        query = self.client.get_typed_query(
+            resource_type,
+            query_result_format=QueryResultFormat.RECORDS,
+            qfilter=vdc_filter)
+        records = query.execute()
 
-        if hasattr(records, 'OrgVdcNetworkRecord'):
-            return records.OrgVdcNetworkRecord
-        else:
-            return []
+        return records
+
+    def get_orgvdc_network_record_by_name(self, orgvdc_network_name):
+        """Fetch the orgvdc network identified by its name in the current vdc.
+
+        :return: orgvdc network data in form of OrgVdcNetworkRecord XML
+            element.
+
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises: EntityNotFoundException: if the named org vdc network cannot
+            be located.
+        """
+        records = self.list_orgvdc_network_records()
+
+        for record in records:
+            if orgvdc_network_name == record.get('name'):
+                return record
+
+        raise EntityNotFoundException(
+            "Org vdc network \'%s\' does not exist in vdc \'%s\'" %
+            (orgvdc_network_name, self.get_resource().get('name')))
 
     def list_orgvdc_network_resources(self, name=None, type=None):
         """Fetch orgvdc networks with filtering by name and type.
 
-        :param name: (str): Name of the networks we want to retrieve.
-        :param type: (str): Type of networks we want to retrieve, valid values
+        :param str name: name of the networks we want to retrieve.
+        :param str type: type of networks we want to retrieve, valid values
             are 'bridged' and 'isolated'.
 
-        :return:  A list of :class:`lxml.objectify.StringElement` objects
-            representing orgvdc network resources.
+        :return: a list of lxml.objectify.ObjectifiedElement objects, where
+            each object contains EntityType.ORG_VDC_NETWORK XML data which
+            represents an org vdc network.
+
+        :rtype: list
         """
         records = self.list_orgvdc_network_records()
         result = []
@@ -1134,16 +1286,22 @@ class VDC(object):
     def list_orgvdc_direct_networks(self):
         """Fetch all directly connected orgvdc networks in the current vdc.
 
-        :return:  A list of :class:`lxml.objectify.StringElement` objects
-            representing all directly connected orgvdc network resources.
+        :return: a list of lxml.objectify.ObjectifiedElement objects, where
+            each object contains EntityType.ORG_VDC_NETWORK XML data which
+            represents an org vdc network.
+
+        :rtype: list
         """
         return self.list_orgvdc_network_resources(type=FenceMode.BRIDGED.value)
 
     def list_orgvdc_isolated_networks(self):
         """Fetch all isolated orgvdc networks in the current vdc.
 
-        :return:  A list of :class:`lxml.objectify.StringElement` objects
-            representing all isolated orgvdc network resources.
+        :return: a list of lxml.objectify.ObjectifiedElement objects, where
+            each object contains EntityType.ORG_VDC_NETWORK XML data which
+            represents an org vdc network.
+
+        :rtype: list
         """
         return self.list_orgvdc_network_resources(
             type=FenceMode.ISOLATED.value)
@@ -1160,12 +1318,15 @@ class VDC(object):
     def get_direct_orgvdc_network(self, name):
         """Retrieve a directly connected orgvdc network in the current vdc.
 
-        :param name: (str): Name of the orgvdc network we want to retrieve.
+        :param str name: name of the orgvdc network we want to retrieve.
 
-        :return:  A :class:`lxml.objectify.StringElement` object representing
-            a directly connected orgvdc network resource.
+        :return: an object containing EntityType.ORG_VDC_NETWORK XML data which
+            represents an org vdc network.
 
-        :raises: Exception: If orgvdc network with the given name is not found.
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises: EntityNotFoundException: if orgvdc network with the given name
+            is not found.
         """
         result = self.list_orgvdc_network_resources(
             name=name, type=FenceMode.BRIDGED.value)
@@ -1177,12 +1338,15 @@ class VDC(object):
     def get_isolated_orgvdc_network(self, name):
         """Retrieve an isolated orgvdc network in the current vdc.
 
-        :param name: (str): Name of the orgvdc network we want to retrieve.
+        :param str name: name of the orgvdc network we want to retrieve.
 
-        :return:  A :class:`lxml.objectify.StringElement` object representing
-            an isolated orgvdc network resource.
+        :return: an object containing EntityType.ORG_VDC_NETWORK XML data which
+            represents an org vdc network.
 
-        :raises: Exception: If orgvdc network with the given name is not found.
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises: EntityNotFoundException: if orgvdc network with the given name
+            is not found.
         """
         result = self.list_orgvdc_network_resources(
             name=name, type=FenceMode.ISOLATED.value)
@@ -1211,15 +1375,18 @@ class VDC(object):
     def delete_direct_orgvdc_network(self, name, force=False):
         """Delete a directly connected orgvdc network in the current vdc.
 
-        :param name: (str): Name of the orgvdc network to be deleted.
-        :param force: (bool): If True, will instruct vcd to force delete
-            the network, ignoring whether it's connected to a vm or vapp
-            network or not.
+        :param str name: name of the orgvdc network we want to delete.
+        :param bool force: if True, will instruct vcd to force delete the
+            network, ignoring whether it is connected to a vm or vapp network
+            or not.
 
-        :return:  A :class:`lxml.objectify.StringElement` object describing
-            the asynchronous task that's deleting the network.
+        :return: an object containing EntityType.TASK XML data which represents
+            the asynchronous task that is deleting the network.
 
-        :raises: Exception: If orgvdc network with the given name is not found.
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises: EntityNotFoundException: if orgvdc network with the given name
+            is not found.
         """
         net_resource = self.get_direct_orgvdc_network(name)
         return self.client.delete_resource(
@@ -1228,15 +1395,18 @@ class VDC(object):
     def delete_isolated_orgvdc_network(self, name, force=False):
         """Delete an isolated orgvdc network in the current vdc.
 
-        :param name: (str): Name of the orgvdc network to be deleted.
-        :param force: (bool): If True, will instruct vcd to force delete
-            the network, ignoring whether it's connected to a vm or vapp
-            network or not.
+        :param str name: name of the orgvdc network we want to delete.
+        :param bool force: if True, will instruct vcd to force delete the
+            network, ignoring whether it is connected to a vm or vapp network
+            or not.
 
-        :return:  A :class:`lxml.objectify.StringElement` object describing
-            the asynchronous task that's deleting the network.
+        :return: an object containing EntityType.TASK XML data which represents
+            the asynchronous task that is deleting the network.
 
-        :raises: Exception: If orgvdc network with the given name is not found.
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises: EntityNotFoundException: if orgvdc network with the given name
+            is not found.
         """
         net_resource = self.get_isolated_orgvdc_network(name)
         return self.client.delete_resource(

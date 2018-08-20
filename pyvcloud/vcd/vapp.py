@@ -26,14 +26,25 @@ from pyvcloud.vcd.client import FenceMode
 from pyvcloud.vcd.client import find_link
 from pyvcloud.vcd.client import NSMAP
 from pyvcloud.vcd.client import RelationType
+from pyvcloud.vcd.client import VCLOUD_STATUS_MAP
 from pyvcloud.vcd.exceptions import EntityNotFoundException
 from pyvcloud.vcd.exceptions import InvalidParameterException
 from pyvcloud.vcd.exceptions import InvalidStateException
+from pyvcloud.vcd.exceptions import OperationNotSupportedException
 from pyvcloud.vcd.vdc import VDC
 
 
 class VApp(object):
     def __init__(self, client, name=None, href=None, resource=None):
+        """Constructor for VApp objects.
+
+        :param pyvcloud.vcd.client.Client client: the client that will be used
+            to make REST calls to vCD.
+        :param str name: name of the entity.
+        :param str href: URI of the entity.
+        :param lxml.objectify.ObjectifiedElement resource: object containing
+            EntityType.VAPP XML data representing the vApp.
+        """
         self.client = client
         self.name = name
         if href is None and resource is None:
@@ -47,19 +58,45 @@ class VApp(object):
             self.href = resource.get('href')
 
     def get_resource(self):
+        """Fetches the XML representation of the vApp from vCD.
+
+        Will serve cached response if possible.
+
+        :return: object containing EntityType.VAPP XML data representing the
+            vApp.
+
+        :rtype: lxml.objectify.ObjectifiedElement
+        """
         if self.resource is None:
-            self.resource = self.client.get_resource(self.href)
+            self.reload()
         return self.resource
 
     def reload(self):
+        """Reloads the resource representation of the vApp.
+
+        This method should be called in between two method invocations on the
+        VApp object, if the former call changes the representation of the
+        vApp in vCD.
+        """
         self.resource = self.client.get_resource(self.href)
         if self.resource is not None:
             self.name = self.resource.get('name')
             self.href = self.resource.get('href')
 
     def get_primary_ip(self, vm_name):
-        if self.resource is None:
-            self.resource = self.client.get_resource(self.href)
+        """Fetch the primary ip of a vm (in the vApp) identified by its name.
+
+        :param str vm_name: name of the vm whose primary ip we want to
+            retrieve.
+
+        :return: ip address of the named vm.
+
+        :rtype: str
+
+        :raises: Exception: if the named vm or its NIC information can't be
+            found.
+        """
+        self.get_resource()
         if hasattr(self.resource, 'Children') and \
            hasattr(self.resource.Children, 'Vm'):
             for vm in self.resource.Children.Vm:
@@ -75,8 +112,18 @@ class VApp(object):
         raise Exception('can\'t find ip address')
 
     def get_admin_password(self, vm_name):
-        if self.resource is None:
-            self.resource = self.client.get_resource(self.href)
+        """Fetch the admin password of a named vm in the vApp.
+
+        :param str vm_name: name of the vm whose admin password we want to
+            retrieve.
+
+        :return: admin password of the named vm.
+
+        :rtype: str
+
+        :raises: EntityNotFoundException: if the named vm can't be found.
+        """
+        self.get_resource()
         if hasattr(self.resource, 'Children') and \
            hasattr(self.resource.Children, 'Vm'):
             for vm in self.resource.Children.Vm:
@@ -87,8 +134,14 @@ class VApp(object):
         raise EntityNotFoundException('Can\'t find admin password')
 
     def get_metadata(self):
-        if self.resource is None:
-            self.resource = self.client.get_resource(self.href)
+        """Fetch metadata of the vApp.
+
+        :return: an object containing EntityType.METADATA XML data which
+            represents the metadata associated with the vApp.
+
+        :rtype: lxml.objectify.ObjectifiedElement
+        """
+        self.get_resource()
         return self.client.get_linked_resource(
             self.resource, RelationType.DOWN, EntityType.METADATA.value)
 
@@ -98,8 +151,20 @@ class VApp(object):
                      key,
                      value,
                      metadata_type='MetadataStringValue'):
-        if self.resource is None:
-            self.resource = self.client.get_resource(self.href)
+        """Set metadata of the vApp.
+
+        :param str domain:
+        :param str visibility:
+        :param str key:
+        :param str value:
+        :param str metadata_type:
+
+        :return: an object containing EntityType.METADATA XML data which
+            represents the updated metadata associated with the vApp.
+
+        :rtype: lxml.objectify.ObjectifiedElement
+        """
+        self.get_resource()
         new_metadata = E.Metadata(
             E.MetadataEntry(
                 {
@@ -116,9 +181,17 @@ class VApp(object):
                                                 new_metadata)
 
     def get_vm_moid(self, vm_name):
-        if self.resource is None:
-            self.resource = self.client.get_resource(self.href)
-        vapp = self.resource
+        """Fetch the moref of a named vm in the vApp.
+
+        :param str vm_name: name of the vm whose moref  we want to retrieve.
+
+        :return: moref of the named vm.
+
+        :rtype: str
+
+        :raises: EntityNotFoundException: if the named vm can't be found.
+        """
+        vapp = self.get_resource()
         if hasattr(vapp, 'Children') and hasattr(vapp.Children, 'Vm'):
             for vm in vapp.Children.Vm:
                 if vm.get('name') == vm_name:
@@ -128,8 +201,17 @@ class VApp(object):
         return None
 
     def set_lease(self, deployment_lease=0, storage_lease=0):
-        if self.resource is None:
-            self.resource = self.client.get_resource(self.href)
+        """Update lease settings of the vApp.
+
+        :param int deployment_lease: length of deployment lease in seconds.
+        :param int storage_lease: length of storage lease in seconds.
+
+        :return: an object containing EntityType.LEASE_SETTINGS XML data which
+            represents the updated lease settings of the vApp.
+
+        :rtype: lxml.objectify.ObjectifiedElement
+        """
+        self.get_resource()
         new_section = self.resource.LeaseSettingsSection
 
         new_section.DeploymentLeaseInSeconds = deployment_lease
@@ -143,11 +225,9 @@ class VApp(object):
     def change_owner(self, href):
         """Change the ownership of vApp to a given user.
 
-        :param href: Href of the new owner or user.
-        :return: None.
+        :param str href: href of the new owner.
         """
-        if self.resource is None:
-            self.resource = self.client.get_resource(self.href)
+        self.get_resource()
         new_owner = self.resource.Owner
         new_owner.User.set('href', href)
         objectify.deannotate(new_owner)
@@ -156,87 +236,241 @@ class VApp(object):
             self.resource.get('href') + '/owner/', new_owner,
             EntityType.OWNER.value)
 
+    def get_power_state(self, vapp_resource=None):
+        """Returns the status of the vApp.
+
+        :param lxml.objectify.ObjectifiedElement vapp_resource: object
+            containing EntityType.VAPP XML data representing the vApp whose
+            power state we want to retrieve.
+
+        :return: The status of the vApp, the semantics of the value returned is
+            captured in pyvcloud.vcd.client.VCLOUD_STATUS_MAP
+
+        :rtype: int
+        """
+        if vapp_resource is None:
+            vapp_resource = self.get_resource()
+        return int(vapp_resource.get('status'))
+
+    def is_powered_on(self, vapp_resource=None):
+        """Checks if a vApp is powered on or not.
+
+        :param lxml.objectify.ObjectifiedElement vapp_resource: object
+            containing EntityType.VAPP XML data representing the vApp whose
+            power state we want to check.
+
+        :return: True if the vApp is powered on else False.
+
+        :rtype: bool
+        """
+        return self.get_power_state(vapp_resource) == 4
+
+    def is_powered_off(self, vapp_resource=None):
+        """Checks if a vApp is powered off or not.
+
+        :param lxml.objectify.ObjectifiedElement vapp_resource: object
+            containing EntityType.VAPP XML data representing the vApp whose
+            power state we want to check.
+
+        :return: True if the vApp is powered off else False.
+
+        :rtype: bool
+        """
+        return self.get_power_state(vapp_resource) == 8
+
+    def is_suspended(self, vapp_resource=None):
+        """Checks if a vApp is suspended or not.
+
+        :param lxml.objectify.ObjectifiedElement vapp_resource: object
+            containing EntityType.VAPP XML data representing the vApp whose
+            power state we want to check.
+
+        :return: True if the vApp is suspended else False.
+
+        :rtype: bool
+        """
+        return self.get_power_state(vapp_resource) == 3
+
+    def is_deployed(self, vapp_resource=None):
+        """Checks if a vApp is deployed or not.
+
+        :param lxml.objectify.ObjectifiedElement vapp_resource: object
+            containing EntityType.VAPP XML data representing the vApp whose
+            power state we want to check.
+
+        :return: True if the vApp is deployed else False.
+
+        :rtype: bool
+        """
+        return self.get_power_state(vapp_resource) == 2
+
+    def _perform_power_operation(self, rel, operation_name, media_type=None,
+                                 contents=None):
+        """Perform a power operation on the vApp.
+
+        Perform one of the following power operations on the vApp.
+        Power on, Power off, Deploy, Undeploy, Shutdown, Reboot, Power reset.
+
+        :param pyvcloud.vcd.client.RelationType rel: relation of the link in
+            the vApp resource that will be triggered for the power operation.
+        :param str operation_name: name of the power operation to perform. This
+            value will be used while logging error messages (if any).
+        :param str media_type: media type of the link in
+            the vApp resource that will be triggered for the power operation.
+        :param lxml.objectify.ObjectifiedElement contents: payload for the
+            linked operation.
+
+        :return: an object containing EntityType.TASK XML data which represents
+            the asynchronous task that is tracking the power operation on the
+            vApp.
+
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises OperationNotSupportedException: if the power operation can't be
+            performed on the vApp.
+        """
+        vapp_resource = self.get_resource()
+        try:
+            return self.client.post_linked_resource(
+                vapp_resource, rel, media_type, contents)
+        except OperationNotSupportedException as e:
+            power_state = self.get_power_state(vapp_resource)
+            raise OperationNotSupportedException(
+                'Can\'t ' + operation_name + ' vApp. Current state of vApp:' +
+                VCLOUD_STATUS_MAP[power_state])
+
     def deploy(self, power_on=None, force_customization=None):
         """Deploys the vApp.
 
         Deploying the vApp will allocate all resources assigned to the vApp.
         TODO: Add lease_deployment_seconds param after PR 2036925 is fixed.
         https://jira.eng.vmware.com/browse/VCDA-465
-        :param power_on: (bool): Specifies whether to power on/off vapp/VM
 
-        on deployment. True by default, unless otherwise specified.
-        :param lease_deployment_seconds: (str): Deployment lease in seconds.
-        :param force_customization: (bool): Used to specify whether to force
+        :param bool power_on: specifies whether to power on/off vApp/vm
+            on deployment. True by default, unless otherwise specified.
+        :param str lease_deployment_seconds: deployment lease in seconds.
+        :param bool force_customization: True, instructs vCD to force
+            customization on deployment. False, no action is performed.
 
-        customization on deployment, if not set default value is false.
+        :return: an object containing EntityType.TASK XML data which represents
+            the asynchronous task that is deploying the vApp.
 
-        :return: A :class:`lxml.objectify.StringElement` object describing
-            the asynchronous Task deploying the vApp.
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises OperationNotSupportedException: if the vApp can't be deployed.
         """
-        if self.resource is None:
-            self.resource = self.client.get_resource(self.href)
         deploy_vapp_params = E.DeployVAppParams()
         if power_on is not None:
             deploy_vapp_params.set('powerOn', str(power_on).lower())
         if force_customization is not None:
             deploy_vapp_params.set('forceCustomization',
                                    str(force_customization).lower())
-        return self.client.post_linked_resource(
-            self.resource, RelationType.DEPLOY, EntityType.DEPLOY.value,
-            deploy_vapp_params)
+
+        return self._perform_power_operation(
+            rel=RelationType.DEPLOY,
+            operation_name='deploy',
+            media_type=EntityType.DEPLOY.value,
+            contents=deploy_vapp_params)
 
     def undeploy(self, action='default'):
-        if self.resource is None:
-            self.resource = self.client.get_resource(self.href)
+        """Undeploys the vApp.
+
+        :param str action: specifies the action to be applied to all vms in the
+            vApp. Accepted values are
+
+                - powerOff: power off the virtual machines.
+                - suspend: suspend the virtual machines.
+                - shutdown: shut down the virtual machines.
+                - force: attempt to power off the virtual machines. Failures in
+                    undeploying the virtual machine or associated networks are
+                    ignored. All references to the vApp and its vms are removed
+                    from the database.
+                - default: use the actions, order, and delay specified in the
+                    StartupSection.
+
+        :return: an object containing EntityType.TASK XML data which represents
+            the asynchronous task that is undeploying the vApp.
+
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises OperationNotSupportedException: if the vApp can't be
+            undeployed.
+        """
         params = E.UndeployVAppParams(E.UndeployPowerAction(action))
-        return self.client.post_linked_resource(
-            self.resource, RelationType.UNDEPLOY, EntityType.UNDEPLOY.value,
-            params)
+
+        return self._perform_power_operation(
+            rel=RelationType.UNDEPLOY,
+            operation_name='undeploy',
+            media_type=EntityType.UNDEPLOY.value,
+            contents=params)
 
     def power_off(self):
-        if self.resource is None:
-            self.resource = self.client.get_resource(self.href)
-        return self.client.post_linked_resource(
-            self.resource, RelationType.POWER_OFF, None, None)
+        """Power off the vms in the vApp.
+
+        :return: an object containing EntityType.TASK XML data which represents
+            the asynchronous task that is powering off the vApp.
+
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises OperationNotSupportedException: if the vApp can't be powered
+            off.
+        """
+        return self._perform_power_operation(rel=RelationType.POWER_OFF,
+                                             operation_name='power off')
 
     def power_on(self):
-        if self.resource is None:
-            self.resource = self.client.get_resource(self.href)
-        return self.client.post_linked_resource(
-            self.resource, RelationType.POWER_ON, None, None)
+        """Power on the vms in the vApp.
+
+        :return: an object containing EntityType.TASK XML data which represents
+            the asynchronous task that is powering on the vApp.
+
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises OperationNotSupportedException: if the vApp can't be powered
+            on.
+        """
+        return self._perform_power_operation(rel=RelationType.POWER_ON,
+                                             operation_name='power on')
 
     def shutdown(self):
         """Shutdown the vApp.
 
-        :return: A :class:`lxml.objectify.StringElement` object describing
-            the asynchronous Task shutting down the vApp.
+        :return: an object containing EntityType.TASK XML data which represents
+            the asynchronous task shutting down the vApp.
+
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises OperationNotSupportedException: if the vApp can't be shutdown.
         """
-        if self.resource is None:
-            self.resource = self.client.get_resource(self.href)
-        return self.client.post_linked_resource(
-            self.resource, RelationType.POWER_SHUTDOWN, None, None)
+        return self._perform_power_operation(rel=RelationType.POWER_SHUTDOWN,
+                                             operation_name='shutdown')
 
     def power_reset(self):
-        """Resets a vApp.
+        """Power resets the vms in the vApp.
 
-        :return: A :class:`lxml.objectify.StringElement` object describing
-            the asynchronous Task resetting the vApp.
+        :return: an object containing EntityType.TASK XML data which represents
+            the asynchronous task resetting the vApp.
+
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises OperationNotSupportedException: if the vApp can't be power
+            reset.
         """
-        if self.resource is None:
-            self.resource = self.client.get_resource(self.href)
-        return self.client.post_linked_resource(
-            self.resource, RelationType.POWER_RESET, None, None)
+        return self._perform_power_operation(rel=RelationType.POWER_RESET,
+                                             operation_name='power reset')
 
     def reboot(self):
-        """Reboots the vApp.
+        """Reboots the vms in the vApp.
 
-        :return: A :class:`lxml.objectify.StringElement` object describing
-            the asynchronous Task rebooting the vApp.
+        :return: an object containing EntityType.TASK XML data which represents
+            the asynchronous task rebooting the vApp.
+
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises OperationNotSupportedException: if the vApp can't be rebooted.
         """
-        if self.resource is None:
-            self.resource = self.client.get_resource(self.href)
-        return self.client.post_linked_resource(
-            self.resource, RelationType.POWER_REBOOT, None, None)
+        return self._perform_power_operation(rel=RelationType.POWER_REBOOT,
+                                             operation_name='reboot')
 
     def connect_first_vm(self, mode='DHCP', reset_mac_address=False):
         if self.resource is None:
@@ -329,17 +563,18 @@ class VApp(object):
             new_connection_section)
 
     def attach_disk_to_vm(self, disk_href, vm_name):
-        """Attach the independent disk to the VM with the given name.
+        """Attach an independent disk to the vm with the given name.
 
-        :param disk_href: (str): The href of the disk to be attached.
-        :param vm_name: (str): The name of the VM to which the disk
-            will be attached.
+        :param str disk_href: href of the disk to be attached.
+        :param str vm_name: name of the vm to which the disk will be attached.
 
-        :return:  A :class:`lxml.objectify.StringElement` object describing
-            the asynchronous Task of attaching the disk.
+        :return: an object containing EntityType.TASK XML data which represents
+            the asynchronous task of attaching the disk.
 
-        :raises: Exception: If the named VM cannot be located or another error
-            occurs.
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises: EntityNotFoundException: if the named vm or disk cannot be
+            located.
         """
         disk_attach_or_detach_params = E.DiskAttachOrDetachParams(
             E.Disk(type=EntityType.DISK.value, href=disk_href))
@@ -351,17 +586,18 @@ class VApp(object):
             disk_attach_or_detach_params)
 
     def detach_disk_from_vm(self, disk_href, vm_name):
-        """Detach the independent disk from the VM with the given name.
+        """Detach the independent disk from the vm with the given name.
 
-        :param disk_href: (str): The href of the disk to be detached.
-        :param vm_name: (str): The name of the VM to which the disk
-            will be detached.
+        :param str disk_href: href of the disk to be detached.
+        :param str vm_name: name of the vm to which the disk will be detached.
 
-        :return:  A :class:`lxml.objectify.StringElement` object describing
-            the asynchronous Task of detaching the disk.
+        :return: an object containing EntityType.TASK XML data which represents
+            the asynchronous task of dettaching the disk.
 
-        :raises: Exception: If the named VM cannot be located or another error
-            occurs.
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises: EntityNotFoundException: if the named vm or disk cannot be
+            located.
         """
         disk_attach_or_detach_params = E.DiskAttachOrDetachParams(
             E.Disk(type=EntityType.DISK.value, href=disk_href))
@@ -372,30 +608,35 @@ class VApp(object):
             disk_attach_or_detach_params)
 
     def get_all_vms(self):
-        """Retrieve all the VMs in this vApp.
+        """Retrieve all the vms in the vApp.
 
-        :return: ([vmType])  A array of :class:`lxml.objectify.StringElement`
-            object describing the requested VMs.
+        :return: a list of lxml.objectify.ObjectifiedElement objects, where
+            each object contains EntityType.VM XML data and represents one vm.
+
+        :rtype: list
         """
         if self.resource is None:
             self.resource = self.client.get_resource(self.href)
 
         if hasattr(self.resource, 'Children') and \
-           hasattr(self.resource.Children, 'Vm') and \
-           len(self.resource.Children.Vm) > 0:
+                hasattr(self.resource.Children, 'Vm') and \
+                len(self.resource.Children.Vm) > 0:
             return self.resource.Children.Vm
         else:
             return []
 
     def get_vm(self, vm_name):
-        """Retrieve the VM with the given name in this vApp.
+        """Retrieve the vm with the given name in this vApp.
 
-        :param vm_name: (str): The name of the VM.
-        :return: (vmType)  A :class:`lxml.objectify.StringElement` object
-            describing the requested VM.
+        :param str vm_name: name of the vm to be retrieved.
+
+        :return: an object contains EntityType.VM XML data that represents the
+            vm.
+
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises: EntityNotFoundException: if the named vm could not be found.
         """
-        if self.resource is None:
-            self.resource = self.client.get_resource(self.href)
         for vm in self.get_all_vms():
             if vm.get('name') == vm_name:
                 return vm
@@ -404,17 +645,19 @@ class VApp(object):
     def add_disk_to_vm(self, vm_name, disk_size):
         """Add a virtual disk to a virtual machine in the vApp.
 
-        It assumes that the VM has already at least one virtual hard disk
-            and will attempt to create another one with similar
-            characteristics.
+        It assumes that the vm has already at least one virtual hard disk
+        and will attempt to create another one with similar characteristics.
 
-        :param vm_name: (str): The name of the vm to be customized.
-        :param disk_size: (int): The size of the disk to be added, in MBs.
-        :return:  A :class:`lxml.objectify.StringElement` object describing the
-            asynchronous Task creating the disk.
+        :param str vm_name: name of the vm to be customized.
+        :param int disk_size: size of the disk to be added, in MBs.
 
-        :raises: Exception: If the named VM cannot be located or another error
-            occured.
+        :return: an object containing EntityType.TASK XML data which represents
+            the asynchronous task that is creating the disk.
+
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises: EntityNotFoundException: if the named vm cannot be located.
+            occurred.
         """
         vm = self.get_vm(vm_name)
         disk_list = self.client.get_resource(
@@ -442,26 +685,32 @@ class VApp(object):
             EntityType.RASD_ITEMS_LIST.value)
 
     def get_access_settings(self):
-        """Get the access settings of the vapp.
+        """Get the access settings of the vApp.
 
-        :return:  A :class:`lxml.objectify.StringElement` object representing
-            the access settings of the vapp.
+        :return: an object containing EntityType.CONTROL_ACCESS_PARAMS which
+            represents the access control list of the vApp.
+
+        :rtype: lxml.objectify.ObjectifiedElement
         """
         acl = Acl(self.client, self.get_resource())
         return acl.get_access_settings()
 
     def add_access_settings(self, access_settings_list=None):
-        """Add access settings to a particular vapp.
+        """Add access settings to the vApp.
 
-        :param access_settings_list: (list of dict): list of access_setting
-            in the dict format. Each dict contains:
-            - type: (str): type of the subject. Only 'user' allowed for vapp.
-            - name: (str): name of the user.
-            - access_level: (str): access_level of the particular subject. One
-                of 'ReadOnly', 'Change', 'FullControl'
+        :param list access_settings_list: list of dictionaries, where each
+            dictionary represents a single access setting. The dictionary
+            structure is as follows,
 
-        :return:  A :class:`lxml.objectify.StringElement` object representing
-        the updated access control setting of the vapp.
+            - type: (str): type of the subject. One of 'org' or 'user'.
+            - name: (str): name of the user or org.
+            - access_level: (str): access_level of the particular subject.
+                Allowed values are 'ReadOnly', 'Change' or 'FullControl'.
+
+        :return: an object containing EntityType.CONTROL_ACCESS_PARAMS XML
+            data representing the updated Access Control List of the vApp.
+
+        :rtype: lxml.objectify.ObjectifiedElement
         """
         acl = Acl(self.client, self.get_resource())
         return acl.add_access_settings(access_settings_list)
@@ -469,39 +718,47 @@ class VApp(object):
     def remove_access_settings(self,
                                access_settings_list=None,
                                remove_all=False):
-        """Remove access settings from a particular vapp.
+        """Remove access settings from the vApp.
 
-        :param access_settings_list: (list of dict): list of access_setting
-            in the dict format. Each dict contains:
-            - type: (str): type of the subject. Only 'user' allowed for vapp.
-            - name: (str): name of the user.
-        :param remove_all: (bool) : True if all access settings of the vapp
-            should be removed
+        :param list access_settings_list: list of dictionaries, where each
+            dictionary represents a single access setting. The dictionary
+            structure is as follows,
 
-        :return:  A :class:`lxml.objectify.StringElement` object representing
-            the updated access control setting of the vapp.
+            - type: (str): type of the subject. One of 'org' or 'user'.
+            - name: (str): name of the user or org.
+        :param bool remove_all: True, if the entire Access Control List of the
+            vApp should be removed, else False.
+
+        :return: an object containing EntityType.CONTROL_ACCESS_PARAMS XML
+            data representing the updated access control setting of the vdc.
+
+        :rtype: lxml.objectify.ObjectifiedElement`
         """
         acl = Acl(self.client, self.get_resource())
         return acl.remove_access_settings(access_settings_list, remove_all)
 
     def share_with_org_members(self, everyone_access_level='ReadOnly'):
-        """Share the vapp to all members of the organization.
+        """Share the vApp to all members of the organization.
 
         :param everyone_access_level: (str) : access level when sharing the
-            vapp with everyone. One of 'ReadOnly', 'Change', 'FullControl'.
-            'ReadOnly' by default.
+            vApp with everyone. Allowed values are 'ReadOnly', 'Change', or
+            'FullControl'. Default value is 'ReadOnly'.
 
-        :return:  A :class:`lxml.objectify.StringElement` object representing
-            the updated access control setting of the vapp.
+        :return: an object containing EntityType.CONTROL_ACCESS_PARAMS XML
+            data representing the updated access control setting of the vdc.
+
+        :rtype: lxml.objectify.ObjectifiedElement
         """
         acl = Acl(self.client, self.get_resource())
         return acl.share_with_org_members(everyone_access_level)
 
     def unshare_from_org_members(self):
-        """Unshare the vapp from all members of current organization.
+        """Unshare the vApp from all members of current organization.
 
-        :return:  A :class:`lxml.objectify.StringElement` object representing
-            the updated access control setting of the vapp.
+        :return: an object containing EntityType.CONTROL_ACCESS_PARAMS XML
+            data representing the updated access control setting of the vdc.
+
+        :rtype: lxml.objectify.ObjectifiedElement
         """
         acl = Acl(self.client, self.get_resource())
         return acl.unshare_from_org_members()
@@ -509,25 +766,27 @@ class VApp(object):
     def get_all_networks(self):
         """Helper method that returns the list of networks defined in the vApp.
 
-        :return:  A :class:`lxml.objectify.StringElement` object with the list
-            of vApp networks.
+        :return: a smart xpath string that represents the list of vApp
+            networks.
+
+        :rtype: xpath string
         """
-        if self.resource is None:
-            self.resource = self.client.get_resource(self.href)
+        self.get_resource()
         return self.resource.xpath(
             '//ovf:NetworkSection/ovf:Network',
-            namespaces={
-                'ovf': NSMAP['ovf']
-            })
+            namespaces={'ovf': NSMAP['ovf']})
 
     def get_vapp_network_name(self, index=0):
         """Returns the name of the network defined in the vApp by index.
 
-        :param index: (int): The index of the vApp network to retrieve.
-            0 if omitted.
+        :param int index: index of the vApp network to retrieve. 0 if omitted.
 
-        :return:  A :class:`string` with the name of the requested network if
-            exists.
+        :return: name of the requested network.
+
+        :rtype: str
+
+        :raises: EntityNotFoundException: if the named network could not be
+            found.
         """
         networks = self.get_all_networks()
         if networks is None or len(networks) < index + 1:
@@ -536,28 +795,30 @@ class VApp(object):
         return networks[index].get('{' + NSMAP['ovf'] + '}name')
 
     def to_sourced_item(self, spec):
-        """Creates a VM SourcedItem from a VM specification.
+        """Creates a vm SourcedItem from a vm specification.
 
-        :param spec: (dict) containing:
-            vapp: (resource): (required) source vApp or vAppTemplate resource
-            source_vm_name: (str): (required) source VM name
-            target_vm_name: (str): (optional) target VM name
-            hostname: (str): (optional) target guest hostname
-            password: (str): (optional) set the administrator password of this
-                machine to this value
-            password_auto: (bool): (optional) autogenerate administrator
-                password
-            password_reset: (bool): (optional) True if the administrator
-                password for this virtual machine must be reset after first use
-            cust_script: (str): (optional) script to run on guest customization
-            network: (str): (optional) Name of the vApp network to connect.
-                If omitted, the VM won't be connected to any network
-            storage_profile: (str): (optional) the name of the storage profile
-                to be used for this VM
+        :param dict spec: a dictionary containing
 
-        :return: SourcedItem: (:class:`lxml.objectify.StringElement`): object
-            representing the 'SourcedItem' xml object created from the
-            specification.
+            - vapp: (resource): (required) source vApp or vAppTemplate
+                resource.
+            - source_vm_name: (str): (required) source vm name.
+            - target_vm_name: (str): (optional) target vm name.
+            - hostname: (str): (optional) target guest hostname.
+            - password: (str): (optional) the administrator password of the vm.
+            - password_auto: (bool): (optional) auto generate administrator
+                password.
+            - password_reset: (bool): (optional) True, if the administrator
+                password for this vm must be reset after first use.
+            - cust_script: (str): (optional) script to run on guest
+                customization.
+            - network: (str): (optional) name of the vApp network to connect.
+                If omitted, the vm won't be connected to any network.
+            - storage_profile: (str): (optional) the name of the storage
+                profile to be used for this vm.
+
+        :return: an object containing SourcedItem XML element.
+
+        :rtype: lxml.objectify.ObjectifiedElement
         """
         source_vapp = VApp(self.client, resource=spec['vapp'])
         source_vapp.reload()
@@ -652,20 +913,21 @@ class VApp(object):
                 deploy=True,
                 power_on=True,
                 all_eulas_accepted=None):
-        """Recompose the vApp and add VMs.
+        """Recompose the vApp and add vms.
 
-        :param specs: An array of VM specifications, see `to_sourced_item()`
-            method for specification details.
-        :param deploy: (bool): True if the vApp should be deployed at
-            instantiation
+        :param dict specs: vm specifications, see `to_sourced_item()` method
+            for specification details.
+        :param bool deploy: True, if the vApp should be deployed at
+            instantiation.
         :param power_on: (bool): True if the vApp should be powered-on at
             instantiation
-        :param all_eulas_accepted: (bool): True confirms acceptance of all
+        :param bool all_eulas_accepted: True confirms acceptance of all
             EULAs in the vApp.
 
-        :return:  A :class:`lxml.objectify.StringElement` object representing a
-            sparsely populated vApp element.
+        :return: an object containing EntityType.VAPP XML data representing the
+            updated vApp.
 
+        :rtype: lxml.objectify.ObjectifiedElement
         """
         params = E.RecomposeVAppParams(
             deploy='true' if deploy else 'false',
@@ -681,13 +943,14 @@ class VApp(object):
             EntityType.RECOMPOSE_VAPP_PARAMS.value, params)
 
     def delete_vms(self, names):
-        """Recompose the vApp and delete VMs.
+        """Recompose the vApp and delete vms.
 
-        :param names: A list or tuple of names (str) of the VMs to delete
-            from the vApp.
+        :param list names: names (str) of vms to delete from the vApp.
 
-        :return:  A :class:`lxml.objectify.StringElement` object representing a
-            sparsely populated vApp element.
+        :return: an object containing EntityType.VAPP XML data representing the
+            updated vApp.
+
+        :rtype: lxml.objectify.ObjectifiedElement
         """
         params = E.RecomposeVAppParams()
         for name in names:
@@ -702,35 +965,34 @@ class VApp(object):
                                 retain_ip=None,
                                 is_deployed=None,
                                 fence_mode=FenceMode.BRIDGED.value):
-        """Connect the vapp to an orgvdc network.
+        """Connect the vApp to an org vdc network.
 
-        :param orgvdc_network_name: (str): name of the orgvdc network to be
-            connected
-        :param retain_ip: (bool): True if  the network resources such as
-            IP/MAC of router will be retained across deployments.
-        :param is_deployed: (bool): True if this orgvdc network has been
+        :param str orgvdc_network_name: name of the org vdc network to be
+            connected to.
+        :param bool retain_ip: True, if  the network resources such as IP/MAC
+            of router will be retained across deployments.
+        :param bool is_deployed: True, if this org vdc network has been
             deployed.
-        :param fence_mode: (str): Controls connectivity to the parent
-            network. One of bridged, isolated or natRouted. bridged by default.
+        :param str fence_mode: mode of connectivity to the parent network.
+            Acceptable values are 'bridged', 'isolated' or 'natRouted'. Default
+            value is 'bridged'.
 
-        :return:  A :class:`lxml.objectify.StringElement` object representing
-            the asynchronous task that is connecting the network.
+        :return: an object containing EntityType.TASK XML data which represents
+            the asynchronous task  that is connecting the vApp to the network.
 
-        :raises: Exception: If orgvdc network does not exist in the vdc or if
-        it is already connected to the vapp.
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises: EntityNotFoundException: if named org vdc network does not
+            exist.
+        :raises: InvalidStateException: if the vApp is already connected to the
+            org vdc network.
         """
-        vdc = VDC(
-            self.client,
-            href=find_link(self.resource, RelationType.UP,
-                           EntityType.VDC.value).href)
-        orgvdc_networks = \
-            vdc.list_orgvdc_network_resources(orgvdc_network_name)
-        if len(orgvdc_networks) == 0:
-            raise EntityNotFoundException(
-                "Orgvdc network \'%s\' does not exist in vdc "
-                "\'%s\'" % (orgvdc_network_name,
-                            vdc.get_resource().get('name')))
-        orgvdc_network_href = orgvdc_networks[0].get('href')
+        vdc = VDC(self.client,
+                  href=find_link(self.resource,
+                                 RelationType.UP,
+                                 EntityType.VDC.value).href)
+        orgvdc_network_href = vdc.get_orgvdc_network_record_by_name(
+            orgvdc_network_name).get('href')
 
         network_configuration_section = \
             deepcopy(self.resource.NetworkConfigSection)
@@ -740,8 +1002,8 @@ class VApp(object):
                 orgvdc_network_name, network_configuration_section)
         if matched_orgvdc_network_config is not None:
             raise InvalidStateException(
-                "Orgvdc network \'%s\' is already connected to "
-                "vapp." % orgvdc_network_name)
+                "Org vdc network \'%s\' is already connected to "
+                "vApp." % orgvdc_network_name)
 
         configuration = E.Configuration(
             E.ParentNetwork(href=orgvdc_network_href), E.FenceMode(fence_mode))
@@ -759,15 +1021,19 @@ class VApp(object):
             network_configuration_section)
 
     def disconnect_org_vdc_network(self, orgvdc_network_name):
-        """Disconnect the vapp from an orgvdc network.
+        """Disconnect the vApp from an org vdc network.
 
-        :param orgvdc_network_name: (str): name of the orgvdc
-            network to be disconnected.
+        :param str orgvdc_network_name: (str): name of the orgvdc network to be
+            disconnected.
 
-        :return:  A :class:`lxml.objectify.StringElement` object representing
-            the asynchronous task that is disconnecting the network.
+        :return: an object containing EntityType.TASK XML data which represents
+            the asynchronous task  that is disconnecting the vApp from the
+            network.
 
-        :raises: Exception: If orgvdc network is not connected to the vapp.
+        :rtype: lxml.objectify.ObjectifiedElement
+
+        :raises: InvalidStateException: if the named org vdc network is not
+            connected to the vApp.
         """
         network_configuration_section = \
             deepcopy(self.resource.NetworkConfigSection)
@@ -777,8 +1043,8 @@ class VApp(object):
                 orgvdc_network_name, network_configuration_section)
         if matched_orgvdc_network_config is None:
             raise InvalidStateException(
-                "Orgvdc network \'%s\' is not attached to the vapp"
-                % orgvdc_network_name)
+                "Org vdc network \'%s\' is not attached to the vApp" %
+                orgvdc_network_name)
         else:
             network_configuration_section.remove(matched_orgvdc_network_config)
 
@@ -790,15 +1056,17 @@ class VApp(object):
     @staticmethod
     def _search_for_network_config_by_name(orgvdc_network_name,
                                            network_configuration_section):
-        """Search for the NetworkConfig element by orgvdc network name.
+        """Search for the NetworkConfig element by org vdc network name.
 
-        :param orgvdc_network_name: (str): name of the orgvdc network to be
+        :param str orgvdc_network_name: name of the org vdc network to be
             searched.
-        :param network_configuration_section :(lxml.objectify.StringElement):
-            NetworkConfigSection of a vapp.
+        :param lxml.objectify.ObjectifiedElement network_configuration_section:
+            NetworkConfigSection of the vApp.
 
-        :return: A :class:`lxml.objectify.StringElement` object
-            representing the  NetworkConfig element in NetworkConfigSection.
+        :return: an object containing NetworkConfig XML element which
+            represents the configuration of the named org vdc network.
+
+        :rtype: lxml.objectify.ObjectifiedElement
         """
         if hasattr(network_configuration_section, 'NetworkConfig'):
             for network_config in network_configuration_section.NetworkConfig:

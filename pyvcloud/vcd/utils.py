@@ -13,6 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from os.path import abspath
+from os.path import dirname
+from os.path import join as joinpath
+from os.path import realpath
+
 import humanfriendly
 from lxml import etree
 from lxml.objectify import NoneElement
@@ -27,6 +32,17 @@ from pyvcloud.vcd.client import VCLOUD_STATUS_MAP
 
 
 def extract_id(urn):
+    """Extract id from an urn.
+
+    'urn:vcloud:catalog:39867ab4-04e0-4b13-b468-08abcc1de810' will produce
+    '39867ab4-04e0-4b13-b468-08abcc1de810'
+
+    :param str urn: a vcloud resource urn.
+
+    :return: the extracted id
+
+    :rtype: str
+    """
     if urn is None:
         return None
     if ':' in urn:
@@ -36,6 +52,15 @@ def extract_id(urn):
 
 
 def org_to_dict(org):
+    """Convert a lxml.objectify.ObjectifiedElement org object to a dict.
+
+    :param lxml.objectify.ObjectifiedElement org: an object containing
+        EntityType.ORG or EntityType.ADMIN_ORG XML data.
+
+    :return: dictionary representation of the org.
+
+    :rtype: dict
+    """
     result = {}
     result['name'] = org.get('name')
     result['id'] = extract_id(org.get('id'))
@@ -56,6 +81,17 @@ def org_to_dict(org):
 
 
 def vdc_to_dict(vdc, access_control_settings=None):
+    """Convert a lxml.objectify.ObjectifiedElement org vdc object to a dict.
+
+    :param lxml.objectify.ObjectifiedElement vdc: an object containing
+        EntityType.VDC XML data.
+    :param lxml.objectify.ObjectifiedElement access_control_settings: an object
+        containing EntityType.CONTROL_ACCESS_PARAMS XML data.
+
+    :return: dictionary representation of the org vdc.
+
+    :rtype: dict
+    """
     result = {}
     result['name'] = vdc.get('name')
     result['id'] = extract_id(vdc.get('id'))
@@ -126,12 +162,16 @@ def vdc_to_dict(vdc, access_control_settings=None):
 def pvdc_to_dict(pvdc, refs=None, metadata=None):
     """Converts a Provider Virtual Datacenter resource to a python dictionary.
 
-    :param pvdc: (ProviderVdcType): xml object
-    :param refs: (VdcReferences): xml object retrieved from
-           the ProviderVdcType.
-    :param metadata: (Metadata): xml object metadata retrieved from
-           the ProviderVdcType.
-    :return: (dict): dict representation of pvdc object.
+    :param lxml.objectify.ObjectifiedElement pvdc: an object containing
+        EntityType.PROVIDER_VDC XML data.
+    :param lxml.objectify.ObjectifiedElement refs: an object containing
+        EntityType.VDC_REFERENCES XML data.
+    :param lxml.objectify.ObjectifiedElement metadata: an object containing
+        EntityType.METADATA XML data.
+
+    :return: dictionary representation of pvdc object.
+
+    :rtype: dict
     """
     result = {}
     result['name'] = pvdc.get('name')
@@ -223,6 +263,14 @@ def pvdc_to_dict(pvdc, refs=None, metadata=None):
 
 
 def to_human(seconds):
+    """Converts seconds to human readable (weeks, days, hours) form.
+
+    :param int seconds: number of seconds.
+
+    :return: (weeks, days, hours) equivalent to the seconds.
+
+    :rtype: str
+    """
     weeks = seconds / (7 * 24 * 60 * 60)
     days = seconds / (24 * 60 * 60) - 7 * weeks
     hours = seconds / (60 * 60) - 7 * 24 * weeks - 24 * days
@@ -230,6 +278,17 @@ def to_human(seconds):
 
 
 def vapp_to_dict(vapp, metadata=None, access_control_settings=None):
+    """Converts a lxml.objectify.ObjectifiedElement vApp object to a dict.
+
+    :param lxml.objectify.ObjectifiedElement vapp: an object containing
+        EntityType.VAPP XML data.
+    :param lxml.objectify.ObjectifiedElement access_control_settings: an object
+        containing EntityType.CONTROL_ACCESS_PARAMS XML data.
+
+    :return: dictionary representation of vApp object.
+
+    :rtype: dict
+    """
     result = {}
     result['name'] = vapp.get('name')
     if hasattr(vapp, 'Description'):
@@ -350,6 +409,15 @@ def vapp_to_dict(vapp, metadata=None, access_control_settings=None):
 
 
 def task_to_dict(task):
+    """Converts a lxml.objectify.ObjectifiedElement task object to a dict.
+
+    :param lxml.objectify.ObjectifiedElement task: an object containing
+        EntityType.TASK XML data.
+
+    :return: dictionary representation of task object.
+
+    :rtype: dict
+    """
     result = to_dict(task)
     if hasattr(task, 'Owner'):
         result['owner_name'] = task.Owner.get('name')
@@ -365,6 +433,15 @@ def task_to_dict(task):
 
 
 def disk_to_dict(disk):
+    """Converts a lxml.objectify.ObjectifiedElement disk object to a dict.
+
+    :param lxml.objectify.ObjectifiedElement disk: an object containing
+        EntityType.DISK XML data.
+
+    :return: dictionary representation of disk object.
+
+    :rtype: dict
+    """
     result = {}
     result['name'] = disk.get('name')
     result['id'] = extract_id(disk.get('id'))
@@ -389,11 +466,14 @@ def disk_to_dict(disk):
 
 
 def access_settings_to_dict(control_access_params):
-    """Convert access settings to dict.
+    """Convert a lxml.objectify.ObjectifiedElement access settings to dict.
 
-    :param control_access_params: (ControlAccessParamsType): xml object
-    representing access settings.
-    :return: (dict): dict representation of access control settings.
+    :param lxml.objectify.ObjectifiedElement control_access_params: an object
+        containing EntityType.CONTROL_ACCESS_PARAMS XML data.
+
+    :return: dict representation of access control settings.
+
+    :rtype: dict
     """
     result = {}
     if hasattr(control_access_params, 'IsSharedToEveryone'):
@@ -427,6 +507,17 @@ def access_settings_to_dict(control_access_params):
 
 
 def filter_attributes(resource_type):
+    """Returns a list of attributes for a given resource type.
+
+    :param str resource_type: type of resource whose list of attributes we want
+        to extract. Valid values are 'adminTask', 'task', 'adminVApp', 'vApp'
+        and 'adminCatalogItem', 'catalogItem'.
+
+    :return: the list of attributes that are relevant for the given resource
+        type.
+
+    :rtype: list
+    """
     attributes = None
     if resource_type in ['adminTask', 'task']:
         attributes = ['id', 'name', 'objectName', 'status', 'startDate']
@@ -446,6 +537,20 @@ def filter_attributes(resource_type):
 
 def to_dict(obj, attributes=None, resource_type=None, exclude=['href',
                                                                'type']):
+    """Converts generic lxml.objectify.ObjectifiedElement to a dictionary.
+
+    :param lxml.objectify.ObjectifiedElement obj:
+    :param list attributes: list of attributes we want to extract from the XML
+        object.
+    :param resource_type: type of resource in the param obj. Acceptable values
+        are listed in the enum pyvcloud.vcd.client.ResourceType.
+    :param list exclude: list of attributes that should be excluded from the
+        dictionary.
+
+    :return: the dictionary representing the object.
+
+    :rtype: dict
+    """
     if obj is None:
         return {}
     result = {}
@@ -487,6 +592,13 @@ def to_camel_case(name, names):
 
 
 def stdout_xml(the_xml, is_colorized=True):
+    """Prints an lxml.objectify.ObjectifiedElement to console.
+
+    :param lxml.objectify.ObjectifiedElement the_xml: the object we want to
+        print.
+    :param bool is_colorized: if True, will print highlight xml tags and
+        attributes else will print b&w output to the console.
+    """
     message = str(etree.tostring(the_xml, pretty_print=True), 'utf-8')
     if is_colorized:
         print(
@@ -497,11 +609,93 @@ def stdout_xml(the_xml, is_colorized=True):
 
 
 def get_admin_href(href):
-    return href.replace('/api/', '/api/admin/')
+    """Returns admin version of a given vCD url.
+
+    This function is idempotent, which also means that if input href is already
+    an admin href no further action would be taken.
+
+    :param str href: the href whose admin version we need.
+
+    :return: admin version of the href.
+
+    :rtype: str
+    """
+    if '/api/admin/extension/' in href:
+        return href.replace('/api/admin/extension', '/api/admin/')
+    elif '/api/admin/' in href:
+        return href
+    else:
+        return href.replace('/api/', '/api/admin/')
 
 
 def get_admin_extension_href(href):
-    if '/api/admin/' in href:
+    """Returns sys admin version of a given vCD url.
+
+    This function is idempotent, which also means that if input href is already
+    an admin extension href no further action would be taken.
+
+    :param str href: the href whose sys admin version we need.
+
+    :return: sys admin version of the href.
+
+    :rtype: str
+    """
+    if '/api/admin/extension/' in href:
+        return href
+    elif '/api/admin/' in href:
         return href.replace('/api/admin/', '/api/admin/extension/')
     else:
         return href.replace('/api/', '/api/admin/extension/')
+
+
+def _badpath(path, base):
+    """Determines if a given file path is under a given base path or not.
+
+    :param str path: file path where the file will be extracted to.
+    :param str base: path to the current working directory.
+
+    :return: False, if the path is under the given base, else True.
+
+    :rtype: bool
+    """
+    # joinpath will ignore base if path is absolute
+    return not realpath(abspath(joinpath(base, path))).startswith(base)
+
+
+def _badlink(info, base):
+    """Determine if a given link is under a given base path or not.
+
+    :param TarInfo info: file that is going to be extracted.
+    :param str base: path to the current working directory.
+
+    :return: False, if the path is under the given base, else True.
+
+    :rtype: bool
+    """
+    # Links are interpreted relative to the directory containing the link
+    tip = realpath(abspath(joinpath(base, dirname(info.name))))
+    return _badpath(info.linkname, base=tip)
+
+
+def get_safe_members_in_tar_file(tarfile):
+    """Retrieve members of a tar file that are safe to extract.
+
+    :param Tarfile tarfile: the archive that has been opened as a TarFile
+        object.
+
+    :return: list of members in the archive that are safe to extract.
+
+    :rtype: list
+    """
+    base = realpath(abspath(('.')))
+    result = []
+    for finfo in tarfile.getmembers():
+        if _badpath(finfo.name, base):
+            print(finfo.name + ' is blocked: illegal path.')
+        elif finfo.issym() and _badlink(finfo, base):
+            print(finfo.name + ' is blocked: Symlink to ' + finfo.linkname)
+        elif finfo.islnk() and _badlink(finfo, base):
+            print(finfo.name + ' is blocked: Hard link to ' + finfo.linkname)
+        else:
+            result.append(finfo)
+    return result
