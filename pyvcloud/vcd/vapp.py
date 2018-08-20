@@ -559,7 +559,8 @@ class VApp(object):
             representing the 'SourcedItem' xml object created from the
             specification.
         """
-        source_vapp = VApp(self.client, href=spec['vapp'].get('href'))
+        source_vapp = VApp(self.client, resource=spec['vapp'])
+        source_vapp.reload()
         source_vm_resource = source_vapp.get_vm(spec['source_vm_name'])
 
         sourced_item = E.SourcedItem(
@@ -589,13 +590,15 @@ class VApp(object):
 
             if spec['ip_address'] and ip_allocation_mode == 'MANUAL':
                 new_connection.append(E.IpAddress(spec['ip_address']))
+
             new_connection.append(E.IsConnected(True))
             new_connection.append(E.IpAddressAllocationMode(
                 ip_allocation_mode.upper()))
 
             vm_instantiation_param.append(
                 E.NetworkConnectionSection(
-                    E_OVF.Info(),
+                    E_OVF.Info("Something"),
+                    E.PrimaryNetworkConnectionIndex(primary_index),
                     new_connection))
 
         needs_customization = 'disk_size' in spec or 'password' in spec or \
@@ -667,6 +670,7 @@ class VApp(object):
         params = E.RecomposeVAppParams(
             deploy='true' if deploy else 'false',
             powerOn='true' if power_on else 'false')
+
         for spec in specs:
             params.append(self.to_sourced_item(spec))
         if all_eulas_accepted is not None:
